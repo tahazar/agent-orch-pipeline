@@ -380,6 +380,11 @@ cmd_start() {
   done
   IFS="$oldifs"
 
+  # Let agent notifications reach the outer terminal. Agent-aware terminals ring
+  # a pane and light up its tab on an OSC 9 sequence, but tmux drops OSC it does
+  # not recognise; the notify hook wraps it for passthrough, which needs this.
+  tmux set-option -t "$SESSION" allow-passthrough on >/dev/null 2>&1 || true
+
   printf '\nSession "%s" started. State: %s\n' "$SESSION" "$STATE_DIR"
   printf 'Attach with: %s attach --session %s\n' "$PROG" "$SESSION"
 }

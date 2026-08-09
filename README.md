@@ -153,6 +153,27 @@ pipeline tell conductor "status"   # ask the conductor directly
 | yellow | waiting on **you** (you also get a macOS notification) |
 | green | idle / done |
 
+### Running under cmux
+
+[cmux](https://github.com/manaflow-ai/cmux) is a terminal, not a multiplexer,
+so it composes with this rather than competing: launch from a cmux pane and the
+pipeline's tmux session is created detached, independent of the window you
+started it in.
+
+- **Notifications reach the sidebar.** When a gate needs you, the notify hook
+  emits an OSC 9 sequence, so the pane rings and its tab lights up. Agents run
+  inside tmux panes and tmux drops unrecognised OSC, so `pipeline start` sets
+  `allow-passthrough on` for its session and the hook wraps the sequence for
+  tmux. If the `cmux` CLI is on `PATH`, the hook calls `cmux notify` as well.
+- **Watching.** `pipeline attach` opens tmux inside a cmux pane. That works, but
+  two prefix keys stack - give one cmux tab to the attach and drive from
+  another. Or skip attaching entirely: `pipeline status`, `logs --follow`,
+  `report`, and `status.md` cover everything, since all agent state is on disk.
+- **Don't point `cmux claude-teams` at the same checkout.** Both it and the
+  conductor expect to own agent lifecycle and git state.
+- cmux's sidebar shows the branch per pane, which pairs well with the serial
+  model: the branch you see is the feature currently being built.
+
 ### Answering a gate
 
 ```bash
