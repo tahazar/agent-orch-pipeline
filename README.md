@@ -3,10 +3,11 @@
 A serial multi-agent development workflow for [Claude Code](https://claude.com/claude-code),
 running locally on macOS as tmux panes.
 
-It builds a design document out **one feature at a time**. Six agents - an
-orchestrator, an adversarial reviewer, a per-feature lead, and three workers -
-coordinate by shelling out to a `pipeline` CLI that wraps tmux. Every
-inter-agent message ends in a machine-parseable `[SIGNAL:...]` tag.
+It builds a design document out **one feature at a time**. Six agents - a
+`conductor`, an adversarial `arbiter`, a per-feature `foreman`, and a three-agent
+crew of `prover`, `inspector`, and `builder` - coordinate by shelling out to a
+`pipeline` CLI that wraps tmux. Every inter-agent message ends in a
+machine-parseable `[SIGNAL:...]` tag.
 
 Unlike a subagent pattern where work disappears into a black-box loop, every
 agent runs in its own pane. You can watch all of it, jump in at any point with
@@ -18,9 +19,9 @@ Exactly one feature team is alive at a time, and it is killed when its feature
 merges.
 
 - **Serializing features eliminates git conflicts and interface races.** Two
-  teams editing one tree concurrently was the single largest source of lost work
-  in the system this replaces.
-- **Killing teams eliminates context bleed.** A fresh lead cannot carry stale
+  teams editing one tree concurrently is the single largest source of lost work
+  in a multi-agent run.
+- **Killing teams eliminates context bleed.** A fresh foreman cannot carry stale
   assumptions from the previous feature.
 
 Features may run in parallel only in an explicitly *proven* independent pair,
@@ -30,12 +31,12 @@ each in its own git worktree. When in doubt, the orchestrator does not group.
 
 | Agent | Model | Role |
 |---|---|---|
-| `orch` | opus | Snapshots the request, decomposes the design, spawns one lead at a time, gates with principal, squash-merges to the base branch, opens the final PR |
-| `principal` | opus | Adversarial gate reviewer. Reviews the decomposition, each plan and tier, spot-checks completed work by reading the diff line by line, reviews contract changes, and does a final whole-system review against the original request. Idle between gates |
-| `lead` | opus | Per-feature team lead. Writes the plan, picks the tier, drives the playbook, spawns and kills workers |
-| `tdd-tester` | opus | Writes failing tests from the requirements |
-| `tdd-reviewer` | sonnet | Audits the tests, then reviews the implementation |
-| `tdd-impl` | sonnet | Makes failing tests pass. Never modifies tests or contracts |
+| `conductor` | opus | Snapshots the request, decomposes the design, spawns one foreman at a time, gates with arbiter, squash-merges to the base branch, opens the final PR |
+| `arbiter` | opus | Adversarial gate reviewer at every stage. Reviews the decomposition, each plan and tier, spot-checks completed work by reading the diff line by line, reviews contract changes, and does a final whole-system review against the original request. Idle between gates |
+| `foreman` | opus | Runs one feature's team. Writes the plan, picks the tier, drives the playbook, spawns and kills workers |
+| `prover` | opus | Writes failing tests from the requirements |
+| `inspector` | sonnet | Audits the tests, then reviews the implementation |
+| `builder` | sonnet | Makes failing tests pass. Never modifies tests or contracts |
 
 You are a gated decision-maker, not a driver: kickoff, decomposition approval,
 per-feature plan approval, and deadlock arbitration. Everything else is
@@ -43,15 +44,15 @@ autonomous.
 
 ## Workflow tiers
 
-The lead picks one per feature and records it in `plan.md` with a justification.
-Principal reviews the choice for honesty; you can override it at the approval
+The foreman picks one per feature and records it in `plan.md` with a justification.
+Arbiter reviews the choice for honesty; you can override it at the approval
 gate.
 
 | Tier | Typical work | Workers |
 |---|---|---|
 | `direct` | doc / config / rename / one-liner | none |
-| `lite` | bug fix, small change | impl + reviewer |
-| `full-tdd` | real feature with logic | tester + reviewer + impl |
+| `lite` | bug fix, small change | builder + inspector |
+| `full-tdd` | real feature with logic | prover + inspector + builder |
 
 ---
 
@@ -95,10 +96,10 @@ $EDITOR docs/specs/my-design.md
 Two rules:
 
 - **Check out a working branch first.** Whatever branch you are on at kickoff
-  becomes the integration branch. If it is `main` or `master`, orch stops and
+  becomes the integration branch. If it is `main` or `master`, conductor stops and
   asks you to switch - it will not pick a branch name for you.
 - **Never stage your design under `docs/features/`.** That whole tree is
-  orch-owned. Put designs in `docs/specs/`.
+  conductor-owned. Put designs in `docs/specs/`.
 
 Optional: `docs/steering/code-conventions.md` is read by every agent and is
 **binding** where it conflicts with `CLAUDE.md` or `AGENTS.md`.
@@ -106,20 +107,20 @@ Optional: `docs/steering/code-conventions.md` is read by every agent and is
 ## Run a session
 
 ```bash
-pipeline start --session mything --agents "orch,principal"
+pipeline start --session mything --agents "conductor,arbiter"
 pipeline attach --session mything          # optional: watch it
 ```
 
 ### Normal mode - ends with a PR
 
 ```bash
-pipeline tell orch "Build docs/specs/my-design.md. [SIGNAL:KICKOFF]"
+pipeline tell conductor "Build docs/specs/my-design.md. [SIGNAL:KICKOFF]"
 ```
 
 ### Test mode - no PR, never touches main
 
 ```bash
-pipeline tell orch "Build docs/specs/my-design.md. Use test mode. [SIGNAL:KICKOFF]"
+pipeline tell conductor "Build docs/specs/my-design.md. Use test mode. [SIGNAL:KICKOFF]"
 ```
 
 The mode is written into `session.md` at kickoff and read from there on every
@@ -141,7 +142,7 @@ Everything else:
 pipeline status                    # who is alive, and whether they are wedged
 pipeline logs --follow             # live message audit trail
 pipeline report                    # timeline, protocol violations, delivery problems
-pipeline tell orch "status"        # ask orch directly
+pipeline tell conductor "status"   # ask the conductor directly
 ```
 
 ### Pane colours
@@ -155,14 +156,14 @@ pipeline tell orch "status"        # ask orch directly
 ### Answering a gate
 
 ```bash
-pipeline tell orch "Decomposition looks right, go ahead. [SIGNAL:DEV_APPROVE_DECOMPOSITION]"
-pipeline tell orch "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+pipeline tell conductor "Decomposition looks right, go ahead. [SIGNAL:DEV_APPROVE_DECOMPOSITION]"
+pipeline tell conductor "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
 ```
 
 ### Overriding a tier
 
 ```bash
-pipeline tell orch "F002 is not lite - the merge logic needs real tests. Use full-tdd. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+pipeline tell conductor "F002 is not lite - the merge logic needs real tests. Use full-tdd. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
 ```
 
 ### Resuming after a dead pane
@@ -170,15 +171,15 @@ pipeline tell orch "F002 is not lite - the merge logic needs real tests. Use ful
 Agents are stateless relative to artifacts, so nothing is lost:
 
 ```bash
-pipeline spawn lead:opus:lead-F002-parser
-pipeline tell lead-F002-parser "Respawned. Read docs/features/current/F002-parser/status.md and resume from the recorded phase; do not redo completed work. [SIGNAL:FEATURE_RESUME feature=F002-parser]"
+pipeline spawn foreman:opus:foreman-F002-parser
+pipeline tell foreman-F002-parser "Respawned. Read docs/features/current/F002-parser/status.md and resume from the recorded phase; do not redo completed work. [SIGNAL:FEATURE_RESUME feature=F002-parser]"
 ```
 
 ### Stopping
 
 ```bash
-pipeline tell orch "Stop here, leave everything on disk. [SIGNAL:HOLD]"
-pipeline kill orch && pipeline kill principal
+pipeline tell conductor "Stop here, leave everything on disk. [SIGNAL:HOLD]"
+pipeline kill conductor && pipeline kill arbiter
 ```
 
 ---
@@ -188,34 +189,37 @@ pipeline kill orch && pipeline kill principal
 A two-feature design (one `direct`, one `lite`) in test mode:
 
 ```
-you        -> orch        Build docs/specs/toy-design.md. Use test mode. [SIGNAL:KICKOFF]
-orch                      captures base=work/toy, freezes request.md, decomposes into
-                          F001-config-file and F002-off-by-one
-orch       -> principal   [SIGNAL:DECOMPOSITION_READY]                        GATE 1a
-principal  -> orch        [SIGNAL:APPROVED]                                   (bare = decomposition)
-orch       -> you         asks for approval
-you        -> orch        [SIGNAL:DEV_APPROVE_DECOMPOSITION]
+you        -> conductor   Build docs/specs/toy-design.md. Use test mode. [SIGNAL:KICKOFF]
+conductor                 captures base=work/toy, freezes request.md, decomposes
+                          into F001-config-file and F002-off-by-one
+conductor  -> arbiter     [SIGNAL:DECOMPOSITION_READY]                    GATE 1a
+arbiter    -> conductor   [SIGNAL:APPROVED]                     (bare = decomposition)
+conductor  -> you         asks for approval
+you        -> conductor   [SIGNAL:DEV_APPROVE_DECOMPOSITION]
 
-orch                      branch feature/F001-config-file, spawns lead-F001-config-file
-orch       -> lead        [SIGNAL:FEATURE_START feature=F001-config-file]
-lead       -> orch        [SIGNAL:PLAN_READY feature=F001-config-file]        tier: direct
-orch       -> principal   [SIGNAL:PLAN_REVIEW_READY feature=F001-config-file] GATE 1b
-principal  -> orch        [SIGNAL:APPROVED feature=F001-config-file]
-you        -> orch        [SIGNAL:DEV_APPROVE_PLAN feature=F001-config-file]
-orch       -> lead        [SIGNAL:PLAN_APPROVED feature=F001-config-file]
-lead                      does the work itself (direct tier: no workers)
-lead       -> orch        [SIGNAL:FEATURE_COMPLETE feature=F001-config-file]
-orch       -> principal   [SIGNAL:WORK_REVIEW_READY feature=F001-config-file] GATE 2
-principal                 writes work-review.md with the evidence header
-principal  -> orch        [SIGNAL:WORK_APPROVED feature=F001-config-file]
-orch                      validates the header, squash-merges the reviewed SHA onto work/toy
-orch       -> lead        [SIGNAL:KILL_WORKERS feature=F001-config-file]
+conductor                 branches feature/F001-config-file, spawns the foreman
+conductor  -> foreman     [SIGNAL:FEATURE_START feature=F001-config-file]
+foreman    -> conductor   [SIGNAL:PLAN_READY feature=F001-config-file]  tier: direct
+conductor  -> arbiter     [SIGNAL:PLAN_REVIEW_READY feature=F001-config-file]  GATE 1b
+arbiter    -> conductor   [SIGNAL:APPROVED feature=F001-config-file]
+you        -> conductor   [SIGNAL:DEV_APPROVE_PLAN feature=F001-config-file]
+conductor  -> foreman     [SIGNAL:PLAN_APPROVED feature=F001-config-file]
+foreman                   does the work itself - the direct tier spawns no crew
+foreman    -> conductor   [SIGNAL:FEATURE_COMPLETE feature=F001-config-file]
+conductor  -> arbiter     [SIGNAL:WORK_REVIEW_READY feature=F001-config-file]  GATE 2
+arbiter                   writes work-review.md with the evidence header
+arbiter    -> conductor   [SIGNAL:WORK_APPROVED feature=F001-config-file]
+conductor                 validates the header, squash-merges the reviewed SHA
+conductor  -> foreman     [SIGNAL:KILL_WORKERS feature=F001-config-file]
 
-...                       F002-off-by-one repeats, at tier lite with impl + reviewer
+...                       F002-off-by-one repeats at tier lite, where the foreman
+                          spawns builder + inspector as builder-F002-off-by-one
+                          and inspector-F002-off-by-one
 
-orch       -> principal   [SIGNAL:FINAL_REVIEW_READY]                         FINAL GATE
-principal  -> orch        [SIGNAL:FINAL_APPROVED]
-orch       -> you         test mode: no PR; work is on work/toy, here is the follow-up
+conductor  -> arbiter     [SIGNAL:FINAL_REVIEW_READY]                  FINAL GATE
+arbiter    -> conductor   [SIGNAL:FINAL_APPROVED]
+conductor  -> you         test mode: no PR; work is on work/toy, here is the
+                          manual follow-up
 ```
 
 `test/smoke.sh` runs exactly this, end to end, against a throwaway repo.
@@ -226,14 +230,14 @@ orch       -> you         test mode: no PR; work is on work/toy, here is the fol
 
 ### A signal was sent but nothing happened
 
-Signals are tool actions. An agent writing "I'll tell the lead
+Signals are tool actions. An agent writing "I'll tell the foreman
 [SIGNAL:REVIEW_PASS]" in its reply has sent **nothing**. The confirmation line
 `Message sent to <alias> (msg=N)` is the proof - `pipeline tell` prints it only
 after verifying the text actually landed in the target pane.
 
 If a verdict never arrived but the sender looks done, the artifact is the
 fallback: `work-review.md`, `review.md`, and `plan-review.md` all carry their
-verdict on disk *before* the signal goes out. Read it, then tell orch what it
+verdict on disk *before* the signal goes out. Read it, then tell conductor what it
 says.
 
 ```bash
@@ -247,7 +251,7 @@ pipeline report                # dropped signals, dead letters, violations
 would be consumed answering it, and the message would vanish. You will see:
 
 ```
-pipeline: pane for lead-F002 is showing a dialog; message NOT sent (dead-lettered).
+pipeline: pane for foreman-F002 is showing a dialog; message NOT sent (dead-lettered).
 ```
 
 Attach, clear the prompt, and resend. If it keeps happening, a command is
@@ -260,7 +264,7 @@ add it and re-run `./build-prompts.sh`.
 
 ```
 ALIAS      ROLE   MODEL  EFFORT  PANE  PANE-STATE  AGENT-STATE
-orch       orch   opus   -       %0    alive       WEDGED
+conductor       conductor   opus   -       %0    alive       WEDGED
 ```
 
 `WEDGED` means the pane is up but no Claude session is registered under that
@@ -289,9 +293,9 @@ and resend - nothing is silently dropped.
 EVIDENCE_INVALID F002-parser reason=stale-sha
 ```
 
-Principal approved a commit that is no longer the branch tip - the branch moved
+Arbiter approved a commit that is no longer the branch tip - the branch moved
 after the review, so the approval covers work that is not what would be merged.
-Orch re-requests the gate. This does **not** consume a spot-check cycle.
+The conductor re-requests the gate. This does **not** consume a spot-check cycle.
 
 ---
 
@@ -301,7 +305,7 @@ Orch re-requests the gate. This does **not** consume a spot-check cycle.
 pipeline                    the CLI (bash, tmux + jq only)
 context/                    prompt sources, single-sourced across roles
   workflow.md               shared by all six roles
-  workflow-coordination.md  orch, principal, lead ONLY
+  workflow-coordination.md  conductor, arbiter, foreman ONLY
   playbook-{direct,lite,tdd}.md
   identity/<role>.md        identity + INVARIANTS
   <role>-role.md            phase-by-phase protocol
@@ -321,9 +325,9 @@ Edit files in `context/`, never in `prompts/` - then:
 ### Invariants are enforced, not just requested
 
 Each role's prompt states its invariants, and its settings file enforces the
-ones that can be: principal and the reviewer are denied `Edit` outright; impl is
-denied writes to test paths and contracts; the tester is denied writes to
-implementation code; only orch may push or run `gh`. `test/prompt-lint.sh` fails
+ones that can be: arbiter and the inspector are denied `Edit` outright; builder is
+denied writes to test paths and contracts; the prover is denied writes to
+implementation code; only conductor may push or run `gh`. `test/prompt-lint.sh` fails
 if a prompt's stated invariant and its mechanical deny ever drift apart.
 
 ### Tests
@@ -349,7 +353,7 @@ prompts - that is what a live run on your own machine is for.
 
 - **Per-role MCP and effort.** Edit `role_default_effort` / `role_default_mcp`
   at the top of `pipeline`, or pass `--effort` / `--mcp-config` to
-  `pipeline spawn`. Principal defaults to `xhigh`.
+  `pipeline spawn`. Arbiter defaults to `xhigh`.
 - **`pipeline watch`** flags a stalled session and notifies you, so a blocking
   gate cannot wait silently forever.
 - **`SendMessage`/`ListAgents`.** Claude Code has native cross-session

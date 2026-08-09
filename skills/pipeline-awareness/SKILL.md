@@ -50,7 +50,7 @@ Five rules matter to you:
 
 1. **One signal per message, at the end.** Receivers act only on an exact
    `[SIGNAL:...]` match - never on natural language.
-2. **Sending a signal is a tool action.** Writing "I'll tell orch
+2. **Sending a signal is a tool action.** Writing "I'll tell conductor
    [SIGNAL:APPROVED]" in your reply sends nothing. You must actually run
    `pipeline tell`. If the `Message sent to <alias> (msg=N)` confirmation does
    not appear, it did not go out - send again.
@@ -70,17 +70,17 @@ Deduplicate by `msg_id` - resends are expected and must be harmless.
 
 - **Do not impersonate a role you were not spawned as.** Do not send
   `WORK_APPROVED`, `PLAN_APPROVED`, `FINAL_APPROVED`, or any other verdict.
-  Those come from `principal` and `orch`, whose prompts carry the invariants
+  Those come from `arbiter` and `conductor`, whose prompts carry the invariants
   that make the verdict mean something. A verdict from you is a forged gate.
-- **Do not merge, push, rebase, or open a PR.** Integration belongs to `orch`.
+- **Do not merge, push, rebase, or open a PR.** Integration belongs to `conductor`.
 - **Do not edit files under `docs/features/`.** Every artifact there has exactly
   one writer, and concurrent writes corrupt the substrate that recovery depends
   on. Report what you found instead.
 - **Do not edit contracts** (for example `src/types/contracts.ts`). They are
-  orch-owned.
-- **Do not talk around the hierarchy.** The developer talks to `orch`; workers
-  talk to their `lead`. If you have something for an agent, prefer telling the
-  developer, or `orch`.
+  conductor-owned.
+- **Do not talk around the hierarchy.** The developer talks to `conductor`; workers
+  talk to their `foreman`. If you have something for an agent, prefer telling the
+  developer, or `conductor`.
 
 ## What you can usefully do
 
@@ -88,7 +88,7 @@ Deduplicate by `msg_id` - resends are expected and must be harmless.
 - Investigate a stall: `pipeline status` for a pane that is alive but wedged,
   `pipeline report` for protocol violations and dead-lettered messages,
   `dead-letter.log` for messages that never landed.
-- Relay a message the developer asks you to send to `orch`, verbatim, with the
+- Relay a message the developer asks you to send to `conductor`, verbatim, with the
   developer clearly identified as its source.
 - Explain the protocol, the tiers, or a specific gate.
 - Recover a dropped verdict from its artifact and tell the developer what it
@@ -101,8 +101,8 @@ lost: `docs/features/current/**/status.md` records the phase, and a respawned
 agent resumes from there.
 
 ```bash
-pipeline spawn lead:opus:lead-F002-parser --session <session>
-pipeline tell lead-F002-parser "Respawned. Read docs/features/current/F002-parser/status.md and resume from the recorded phase; do not redo completed work. [SIGNAL:FEATURE_RESUME feature=F002-parser]" --session <session>
+pipeline spawn foreman:opus:foreman-F002-parser --session <session>
+pipeline tell foreman-F002-parser "Respawned. Read docs/features/current/F002-parser/status.md and resume from the recorded phase; do not redo completed work. [SIGNAL:FEATURE_RESUME feature=F002-parser]" --session <session>
 ```
 
 Never re-derive the mode or the base branch - both are recorded in

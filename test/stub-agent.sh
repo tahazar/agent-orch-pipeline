@@ -47,7 +47,7 @@ write_file() {
 }
 
 # --------------------------------------------------------------------------
-# Feature state (orch only) - the explicit FSM plus counters.
+# Feature state (conductor only) - the explicit FSM plus counters.
 # --------------------------------------------------------------------------
 
 fs_file() { printf '%s/feature-state.json' "$CUR"; }
@@ -111,10 +111,10 @@ next_feature() {  # next_feature <current or empty>
 }
 
 # --------------------------------------------------------------------------
-# orch
+# conductor
 # --------------------------------------------------------------------------
 
-orch_kickoff() {
+conductor_kickoff() {
   local body="$1" base mode slug sess
   base="$(git rev-parse --abbrev-ref HEAD)"
   case "$base" in
@@ -180,10 +180,10 @@ orch_kickoff() {
   local f
   for f in $FEATURES; do fs_set "$f" state PLANNING; fs_set "$f" spotcheck_cycles 0; done
 
-  say principal "Decomposition ready: 2 features. Request at $CUR/request.md, design at $CUR/design.md, order at $CUR/feature-order.md. [SIGNAL:DECOMPOSITION_READY]"
+  say arbiter "Decomposition ready: 2 features. Request at $CUR/request.md, design at $CUR/design.md, order at $CUR/feature-order.md. [SIGNAL:DECOMPOSITION_READY]"
 }
 
-orch_status_md() {
+conductor_status_md() {
   {
     printf '# Session status\n\n'
     printf -- '- mode: %s\n- base: %s\n\n' "$(session_mode)" "$(session_base)"
@@ -198,15 +198,15 @@ orch_status_md() {
 
 ask_developer() { printf '%s\n' "$1" > "$DIR/awaiting-developer"; log_action "ASK_DEV $1"; }
 
-orch_start_feature() {
+conductor_start_feature() {
   local f="$1" base
   base="$(session_base)"
   git checkout -q "$base" 2>/dev/null
   git checkout -q -b "feature/$f" 2>/dev/null || git checkout -q "feature/$f"
   fs_set "$f" state PLANNING
-  orch_status_md "lead-$f to plan $f"
-  pipeline spawn "lead:opus:lead-$f" >> "$DIR/send-$ME.log" 2>&1
-  say "lead-$f" "Start $f. Requirements at $CUR/$f/requirements.md, branch feature/$f, base $base. Reply to orch. [SIGNAL:FEATURE_START feature=$f]"
+  conductor_status_md "foreman-$f to plan $f"
+  pipeline spawn "foreman:opus:foreman-$f" >> "$DIR/send-$ME.log" 2>&1
+  say "foreman-$f" "Start $f. Requirements at $CUR/$f/requirements.md, branch feature/$f, base $base. Reply to conductor. [SIGNAL:FEATURE_START feature=$f]"
 }
 
 # Evidence-header validation. Missing/incomplete header, or a SHA that is not
@@ -229,7 +229,7 @@ validate_evidence() {  # validate_evidence <feature>; echoes the sha on success
 
 # Write-ahead + idempotent. Called again after a crash, this must not produce a
 # second squash commit.
-orch_merge() {  # orch_merge <feature> <reviewed-sha>
+conductor_merge() {  # conductor_merge <feature> <reviewed-sha>
   local f="$1" sha="$2" base
   base="$(session_base)"
 
@@ -257,7 +257,7 @@ orch_merge() {  # orch_merge <feature> <reviewed-sha>
   log_action "MERGED $f sha=$sha"
 }
 
-orch_finish() {
+conductor_finish() {
   local mode; mode="$(session_mode)"
   git add -A docs/features >/dev/null 2>&1
   git commit -q -m "docs: session artifacts" 2>/dev/null || true
@@ -271,52 +271,52 @@ orch_finish() {
   else
     log_action "NORMAL_MODE would run gh pr create"
   fi
-  orch_status_md "nothing - session complete"
+  conductor_status_md "nothing - session complete"
   touch "$DIR/session-complete"
 }
 
-orch_handle() {
+conductor_handle() {
   local sig="$1" params="$2" body="$3" f
   f="$(printf '%s' "$params" | sed -n 's/.*feature=\([^ ]*\).*/\1/p')"
 
   case "$sig" in
-    KICKOFF) orch_kickoff "$body" ;;
+    KICKOFF) conductor_kickoff "$body" ;;
 
     APPROVED)
       case "$params" in
         *feature=*)
           state_allows "$f" APPROVED || { violation "APPROVED for $f in state $(fs_get "$f" state)"; return; }
           fs_set "$f" state DEV_APPROVAL
-          orch_status_md "developer approval of the $f plan"
+          conductor_status_md "developer approval of the $f plan"
           ask_developer "plan:$f" ;;
         *contract*) log_action "CONTRACT_APPROVED" ;;
         *)
           # Bare discriminator = the decomposition verdict.
-          orch_status_md "developer approval of the decomposition"
+          conductor_status_md "developer approval of the decomposition"
           ask_developer "decomposition" ;;
       esac ;;
 
     DEV_APPROVE_DECOMPOSITION)
       rm -f "$DIR/awaiting-developer"
-      orch_start_feature "$(next_feature "")" ;;
+      conductor_start_feature "$(next_feature "")" ;;
 
     DEV_APPROVE_PLAN)
       rm -f "$DIR/awaiting-developer"
       state_allows "$f" DEV_APPROVE_PLAN || { violation "DEV_APPROVE_PLAN for $f in state $(fs_get "$f" state)"; return; }
       fs_set "$f" state EXECUTING
-      orch_status_md "lead-$f executing $f"
-      say "lead-$f" "Plan approved by principal and the developer. Proceed. [SIGNAL:PLAN_APPROVED feature=$f]" ;;
+      conductor_status_md "foreman-$f executing $f"
+      say "foreman-$f" "Plan approved by arbiter and the developer. Proceed. [SIGNAL:PLAN_APPROVED feature=$f]" ;;
 
     PLAN_READY)
       state_allows "$f" PLAN_READY || { violation "PLAN_READY for $f in state $(fs_get "$f" state)"; return; }
       fs_set "$f" state PLAN_GATE
-      say principal "Plan ready for $f. Plan at $CUR/$f/plan.md. [SIGNAL:PLAN_REVIEW_READY feature=$f]" ;;
+      say arbiter "Plan ready for $f. Plan at $CUR/$f/plan.md. [SIGNAL:PLAN_REVIEW_READY feature=$f]" ;;
 
     FEATURE_COMPLETE)
       state_allows "$f" FEATURE_COMPLETE || { violation "FEATURE_COMPLETE for $f in state $(fs_get "$f" state)"; return; }
       fs_set "$f" state WORK_GATE
-      orch_status_md "principal spot-check of $f"
-      say principal "$f reports complete on feature/$f. Spot-check it. [SIGNAL:WORK_REVIEW_READY feature=$f]"
+      conductor_status_md "arbiter spot-check of $f"
+      say arbiter "$f reports complete on feature/$f. Spot-check it. [SIGNAL:WORK_REVIEW_READY feature=$f]"
       # Artifact fallback: if the verdict never arrives, poke ourselves so we
       # recover it from the review file instead of stalling forever.
       ( sleep 10; pipeline tell "$ME" "fallback check for $f [SIGNAL:STATUS_REQUEST feature=$f]" \
@@ -329,9 +329,9 @@ orch_handle() {
         local verdict
         verdict="$(sed -n 's/^verdict: //p' "$CUR/$f/work-review.md" | head -1)"
         log_action "DROPPED_SIGNAL recovered verdict=$verdict for $f from artifact"
-        printf '%s\tdropped signal from principal for %s; verdict %s recovered from work-review.md\n' \
+        printf '%s\tdropped signal from arbiter for %s; verdict %s recovered from work-review.md\n' \
           "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$f" "$verdict" >> "$DIR/dropped-signals.log"
-        orch_handle "$verdict" "feature=$f" "recovered from artifact"
+        conductor_handle "$verdict" "feature=$f" "recovered from artifact"
       else
         log_action "STATUS mode=$(session_mode) base=$(session_base)"
       fi ;;
@@ -344,35 +344,35 @@ orch_handle() {
         # INVALID approval: do not merge, re-request the gate, and do NOT
         # count it against the spot-check cycles.
         log_action "EVIDENCE_INVALID $f reason=$res cycles=$(fs_get "$f" spotcheck_cycles)"
-        say principal "Evidence header invalid for $f ($res). Re-review the current tip and rewrite work-review.md. [SIGNAL:WORK_REVIEW_READY feature=$f]"
+        say arbiter "Evidence header invalid for $f ($res). Re-review the current tip and rewrite work-review.md. [SIGNAL:WORK_REVIEW_READY feature=$f]"
         return
       fi
       log_action "EVIDENCE_VALID $f sha=$res"
-      say "lead-$f" "$f approved and merging. Tear down the team. [SIGNAL:KILL_WORKERS feature=$f]"
-      orch_merge "$f" "$res"
-      pipeline kill "lead-$f" >> "$DIR/send-$ME.log" 2>&1
+      say "foreman-$f" "$f approved and merging. Tear down the team. [SIGNAL:KILL_WORKERS feature=$f]"
+      conductor_merge "$f" "$res"
+      pipeline kill "foreman-$f" >> "$DIR/send-$ME.log" 2>&1
       local nxt; nxt="$(next_feature "$f")"
-      orch_status_md "${nxt:-integration}"
+      conductor_status_md "${nxt:-integration}"
       if [ -n "$nxt" ]; then
-        orch_start_feature "$nxt"
+        conductor_start_feature "$nxt"
       else
-        say principal "All features merged onto $(session_base). Review against request.md AND the full design. [SIGNAL:FINAL_REVIEW_READY]"
+        say arbiter "All features merged onto $(session_base). Review against request.md AND the full design. [SIGNAL:FINAL_REVIEW_READY]"
       fi ;;
 
     WORK_REJECTED)
       state_allows "$f" WORK_REJECTED || { violation "WORK_REJECTED for $f in state $(fs_get "$f" state)"; return; }
       fs_bump "$f" spotcheck_cycles
       fs_set "$f" state EXECUTING
-      say "lead-$f" "Spot-check rejected; findings in $CUR/$f/work-review.md. [SIGNAL:PLAN_APPROVED feature=$f]" ;;
+      say "foreman-$f" "Spot-check rejected; findings in $CUR/$f/work-review.md. [SIGNAL:PLAN_APPROVED feature=$f]" ;;
 
-    FINAL_APPROVED) orch_finish ;;
+    FINAL_APPROVED) conductor_finish ;;
     FINAL_REJECTED) log_action "FINAL_REJECTED"; touch "$DIR/session-complete" ;;
     *) log_action "IGNORED_SIGNAL $sig" ;;
   esac
 }
 
 # --------------------------------------------------------------------------
-# principal
+# arbiter
 # --------------------------------------------------------------------------
 
 principal_handle() {
@@ -388,7 +388,7 @@ principal_handle() {
         printf 'acceptance criteria are covered and both verbatim examples were\n'
         printf 'carried into requirements.md. No parallel group claimed.\n'
       } | write_file "$CUR/decomposition-review.md"
-      say orch "Decomposition review complete, no blocking findings. Details in decomposition-review.md. ~8k (est.) [SIGNAL:APPROVED]" ;;
+      say conductor "Decomposition review complete, no blocking findings. Details in decomposition-review.md. ~8k (est.) [SIGNAL:APPROVED]" ;;
 
     PLAN_REVIEW_READY)
       local tier; tier="$(sed -n 's/^workflow: //p' "$CUR/$f/plan.md" | head -1)"
@@ -396,7 +396,7 @@ principal_handle() {
         printf '# Plan review: %s\n\nverdict: APPROVED\n\n' "$f"
         printf 'Tier %s is honest for this change.\n' "$tier"
       } | write_file "$CUR/$f/plan-review.md"
-      say orch "Plan review for $f: tier $tier is honest. ~5k (est.) [SIGNAL:APPROVED feature=$f]" ;;
+      say conductor "Plan review for $f: tier $tier is honest. ~5k (est.) [SIGNAL:APPROVED feature=$f]" ;;
 
     WORK_REVIEW_READY)
       local tip sha stale drop
@@ -406,7 +406,7 @@ principal_handle() {
       drop="$(inject drop_verdict)"
 
       # Injection: on the FIRST review of this feature, record the parent
-      # commit instead of the tip - the same thing orch sees when a branch
+      # commit instead of the tip - the same thing conductor sees when a branch
       # moves after a review.
       if [ "$stale" = "$f" ] && [ ! -f "$DIR/reviewed-once-$f" ]; then
         sha="$(git rev-parse "feature/$f^" 2>/dev/null)"
@@ -423,14 +423,14 @@ principal_handle() {
         printf '# Spot-check: %s\n\nRead the diff line by line; no defects found.\n' "$f"
       } | write_file "$CUR/$f/work-review.md"
 
-      # Injection: write the artifact but never send the verdict, so orch has
+      # Injection: write the artifact but never send the verdict, so conductor has
       # to recover it via the artifact fallback.
       if [ "$drop" = "$f" ] && [ ! -f "$DIR/dropped-once-$f" ]; then
         touch "$DIR/dropped-once-$f"
         printf 'deliberately dropped verdict for %s\n' "$f" >> "$ACTIONS"
         return
       fi
-      say orch "Spot-check of $f complete; evidence header in work-review.md. ~14k (est.) [SIGNAL:WORK_APPROVED feature=$f]" ;;
+      say conductor "Spot-check of $f complete; evidence header in work-review.md. ~14k (est.) [SIGNAL:WORK_APPROVED feature=$f]" ;;
 
     FINAL_REVIEW_READY)
       {
@@ -438,19 +438,19 @@ principal_handle() {
         printf 'Checked the assembled base against request.md and design.md.\n'
         printf 'Both features deliver their acceptance criteria.\n'
       } | write_file "$CUR/final-review.md"
-      say orch "Final review complete against request.md and the design. ~19k (est.) [SIGNAL:FINAL_APPROVED]" ;;
+      say conductor "Final review complete against request.md and the design. ~19k (est.) [SIGNAL:FINAL_APPROVED]" ;;
 
     *) log_action "IGNORED_SIGNAL $sig" ;;
   esac
 }
 
 # --------------------------------------------------------------------------
-# lead
+# foreman
 # --------------------------------------------------------------------------
 
-lead_status() { printf '# %s\n\nphase: %s\n' "$1" "$2" | write_file "$CUR/$1/status.md"; }
+foreman_status() { printf '# %s\n\nphase: %s\n' "$1" "$2" | write_file "$CUR/$1/status.md"; }
 
-lead_handle() {
+foreman_handle() {
   local sig="$1" params="$2" f tier
   f="$(printf '%s' "$params" | sed -n 's/.*feature=\([^ ]*\).*/\1/p')"
 
@@ -460,7 +460,7 @@ lead_handle() {
         F001-config-file) tier="direct" ;;
         *)                tier="lite" ;;
       esac
-      lead_status "$f" PLANNING
+      foreman_status "$f" PLANNING
       {
         printf '# Plan: %s\n\n' "$f"
         printf 'workflow: %s\n' "$tier"
@@ -471,40 +471,40 @@ lead_handle() {
         fi
         printf '## Approach\nSee requirements.md.\n'
       } | write_file "$CUR/$f/plan.md"
-      say orch "Plan for $f ready: $tier. Plan at $CUR/$f/plan.md. ~6k (est.) [SIGNAL:PLAN_READY feature=$f]" ;;
+      say conductor "Plan for $f ready: $tier. Plan at $CUR/$f/plan.md. ~6k (est.) [SIGNAL:PLAN_READY feature=$f]" ;;
 
     PLAN_APPROVED)
-      lead_status "$f" EXECUTING
+      foreman_status "$f" EXECUTING
       git checkout -q "feature/$f" 2>/dev/null
       case "$f" in
         F001-config-file)
-          # direct tier: the lead does the work itself, no workers.
+          # direct tier: the foreman does the work itself, no workers.
           mkdir -p config
           printf '{"name": "toy", "version": 1}\n' > config/app.json
           git add config/app.json && git commit -q -m "add config/app.json"
-          lead_status "$f" COMPLETE
-          say orch "$f complete: added config/app.json, no code paths touched. ~4k (est.) [SIGNAL:FEATURE_COMPLETE feature=$f]" ;;
+          foreman_status "$f" COMPLETE
+          say conductor "$f complete: added config/app.json, no code paths touched. ~4k (est.) [SIGNAL:FEATURE_COMPLETE feature=$f]" ;;
         *)
-          # lite tier: impl writes the regression test and the fix, reviewer reviews.
-          pipeline spawn "tdd-impl:sonnet:impl-$f" >> "$DIR/send-$ME.log" 2>&1
-          pipeline spawn "tdd-reviewer:sonnet:reviewer-$f" >> "$DIR/send-$ME.log" 2>&1
+          # lite tier: builder writes the regression test and the fix, inspector reviews.
+          pipeline spawn "builder:sonnet:builder-$f" >> "$DIR/send-$ME.log" 2>&1
+          pipeline spawn "inspector:sonnet:inspector-$f" >> "$DIR/send-$ME.log" 2>&1
           sleep 1
-          say "impl-$f" "Fix the off-by-one in scripts/count.sh with a regression test first. Branch feature/$f, requirements at $CUR/$f/requirements.md. Reply to $ME. [SIGNAL:FEATURE_START feature=$f task=implement]" ;;
+          say "builder-$f" "Fix the off-by-one in scripts/count.sh with a regression test first. Branch feature/$f, requirements at $CUR/$f/requirements.md. Reply to $ME. [SIGNAL:FEATURE_START feature=$f task=implement]" ;;
       esac ;;
 
     IMPL_COMPLETE)
-      say "reviewer-$f" "Implementation ready for review on feature/$f. Reply to $ME. [SIGNAL:FEATURE_START feature=$f task=review-impl]" ;;
+      say "inspector-$f" "Implementation ready for review on feature/$f. Reply to $ME. [SIGNAL:FEATURE_START feature=$f task=review-code]" ;;
 
     REVIEW_PASS)
-      lead_status "$f" COMPLETE
-      say orch "$f complete: regression test added and the fix reviewed. ~21k (est.) [SIGNAL:FEATURE_COMPLETE feature=$f]" ;;
+      foreman_status "$f" COMPLETE
+      say conductor "$f complete: regression test added and the fix reviewed. ~21k (est.) [SIGNAL:FEATURE_COMPLETE feature=$f]" ;;
 
     REVIEW_FAIL)
-      say "impl-$f" "Review found problems; see $CUR/$f/review.md. [SIGNAL:FEATURE_START feature=$f task=implement]" ;;
+      say "builder-$f" "Review found problems; see $CUR/$f/review.md. [SIGNAL:FEATURE_START feature=$f task=implement]" ;;
 
     KILL_WORKERS)
-      pipeline kill "impl-$f" >> "$DIR/send-$ME.log" 2>&1
-      pipeline kill "reviewer-$f" >> "$DIR/send-$ME.log" 2>&1
+      pipeline kill "builder-$f" >> "$DIR/send-$ME.log" 2>&1
+      pipeline kill "inspector-$f" >> "$DIR/send-$ME.log" 2>&1
       log_action "TEAM_TORN_DOWN $f" ;;
 
     *) log_action "IGNORED_SIGNAL $sig" ;;
@@ -515,7 +515,7 @@ lead_handle() {
 # workers
 # --------------------------------------------------------------------------
 
-impl_handle() {
+builder_handle() {
   local sig="$1" params="$2" f task
   f="$(printf '%s' "$params" | sed -n 's/.*feature=\([^ ]*\).*/\1/p')"
   task="$(printf '%s' "$params" | sed -n 's/.*task=\([^ ]*\).*/\1/p')"
@@ -539,23 +539,23 @@ EOT
   bash tests/count.test.sh >/dev/null 2>&1 || log_action "ERROR test still fails after the fix"
   git add tests/count.test.sh scripts/count.sh
   git commit -q -m "fix off-by-one in count.sh with a regression test"
-  say "lead-$f" "Regression test added (fails on the old code, passes now) and the off-by-one fixed in scripts/count.sh. No tests or contracts from elsewhere touched. ~12k (est.) [SIGNAL:IMPL_COMPLETE feature=$f]"
+  say "foreman-$f" "Regression test added (fails on the old code, passes now) and the off-by-one fixed in scripts/count.sh. No tests or contracts from elsewhere touched. ~12k (est.) [SIGNAL:IMPL_COMPLETE feature=$f]"
 }
 
-reviewer_handle() {
+inspector_handle() {
   local sig="$1" params="$2" f task
   f="$(printf '%s' "$params" | sed -n 's/.*feature=\([^ ]*\).*/\1/p')"
   task="$(printf '%s' "$params" | sed -n 's/.*task=\([^ ]*\).*/\1/p')"
   [ "$sig" = "FEATURE_START" ] || { log_action "IGNORED_SIGNAL $sig"; return; }
 
   case "$task" in
-    review-impl)
+    review-code)
       {
         printf '# Review: %s\n\nverdict: REVIEW_PASS\n\n' "$f"
         printf 'Verified the regression test fails against the pre-fix script.\n'
         printf 'The fix is at the root cause rather than the symptom.\n'
       } | write_file "$CUR/$f/review.md"
-      say "lead-$f" "Reviewed: the regression test is genuine and the fix addresses the root cause. ~9k (est.) [SIGNAL:REVIEW_PASS feature=$f]" ;;
+      say "foreman-$f" "Reviewed: the regression test is genuine and the fix addresses the root cause. ~9k (est.) [SIGNAL:REVIEW_PASS feature=$f]" ;;
     *) log_action "IGNORED_TASK $task" ;;
   esac
 }
@@ -599,11 +599,11 @@ while IFS= read -r line; do
   log_action "RECV $signal $params"
 
   case "$ROLE" in
-    orch)         orch_handle "$signal" "$params" "$body" ;;
-    principal)    principal_handle "$signal" "$params" ;;
-    lead)         lead_handle "$signal" "$params" ;;
-    tdd-impl)     impl_handle "$signal" "$params" ;;
-    tdd-reviewer) reviewer_handle "$signal" "$params" ;;
+    conductor)         conductor_handle "$signal" "$params" "$body" ;;
+    arbiter)    principal_handle "$signal" "$params" ;;
+    foreman)         foreman_handle "$signal" "$params" ;;
+    builder)     builder_handle "$signal" "$params" ;;
+    inspector) inspector_handle "$signal" "$params" ;;
     *)            log_action "UNKNOWN_ROLE $ROLE" ;;
   esac
 done

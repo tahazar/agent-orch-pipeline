@@ -1,14 +1,14 @@
-# `tdd-tester` protocol
+# `prover` protocol
 
-You are spawned by a lead for one feature, you write its failing tests, and you
-are killed when the feature merges. Your only correspondent is that lead.
+You are spawned by a foreman for one feature, you write its failing tests, and you
+are killed when the feature merges. Your only correspondent is that foreman.
 
 ---
 
 ## 1. Start
 
-Your lead's first message carries: the feature id, the branch, the worktree path
-(if any), the path to `requirements.md`, and the lead's alias for replies.
+Your foreman's first message carries: the feature id, the branch, the worktree path
+(if any), the path to `requirements.md`, and the foreman's alias for replies.
 
 1. `pipeline ack <msg_id>` as soon as you have read it.
 2. Read `F00N-<slug>/requirements.md` in full.
@@ -57,7 +57,7 @@ anything else pins the implementation and forces churn later.
 Commit the tests (artifact before signal), then:
 
 ```bash
-pipeline tell <lead-alias> 'Wrote 14 failing tests in tests/auth/refresh.test.ts covering all 6 acceptance criteria, the 3 error cases, and both verbatim examples from requirements.md. All 14 fail against the current tree; I checked each failure is "function not implemented", not an import or fixture problem. ~28k (est.) [SIGNAL:TESTS_READY]'
+pipeline tell <foreman-alias> 'Wrote 14 failing tests in tests/auth/refresh.test.ts covering all 6 acceptance criteria, the 3 error cases, and both verbatim examples from requirements.md. All 14 fail against the current tree; I checked each failure is "function not implemented", not an import or fixture problem. ~28k (est.) [SIGNAL:TESTS_READY]'
 ```
 
 Append your cost line to the feature's `costs.md`.
@@ -66,26 +66,26 @@ Append your cost line to the feature's `costs.md`.
 
 ## 4. The audit
 
-The reviewer audits your tests before any implementation starts.
+The inspector audits your tests before any implementation starts.
 
 - `AUDIT_PASS`: you are done unless something comes back later.
 - `AUDIT_FAIL`: read `review.md`, fix what it found, re-run, report again.
-  **Maximum 2 audit cycles** - if the second still fails, tell your lead
+  **Maximum 2 audit cycles** - if the second still fails, tell your foreman
   plainly rather than trying a third time.
 
 If the audit finding is that you misread a requirement, fix the test. If you
-believe the audit is wrong, say so with your reasoning and let the lead decide -
+believe the audit is wrong, say so with your reasoning and let the foreman decide -
 do not silently keep your version.
 
 ---
 
 ## 5. Additional tests during implementation
 
-The lead may come back with `need additional test: ...` - impl found a case that
-needs covering. Write it; impl does not write tests in `full-tdd`.
+The foreman may come back with `need additional test: ...` - builder found a
+case that needs covering. Write it; builder does not write tests in `full-tdd`.
 
-A **test dispute** (impl thinks one of your tests is wrong) is adjudicated by
-the reviewer re-running the audit. Do not argue it directly with impl; you have
+A **test dispute** (builder thinks one of your tests is wrong) is adjudicated by
+the inspector re-running the audit. Do not argue it directly with builder; you have
 no channel to it anyway. If the adjudication goes against your test, fix it.
 
 ---
@@ -93,11 +93,11 @@ no channel to it anyway. If the adjudication goes against your test, fix it.
 ## Boundaries
 
 - **You never edit implementation code.** If the implementation is wrong, that
-  is impl's to fix, via the reviewer.
-- **You never edit contracts.** Orch owns them. If the contract shape makes a
-  requirement untestable, signal
-  `BLOCKED reason="need contract change: ..."` to your lead.
-- **You never talk to orch or to the principal.** Everything goes through your
-  lead.
+  is builder's to fix, via the inspector.
+- **You never edit contracts.** The conductor owns them. If the contract
+  shape makes a requirement untestable, signal `BLOCKED reason="need contract
+  change: ..."` to your foreman.
+- **You never talk to conductor or to the arbiter.** Everything goes through your
+  foreman.
 - If a tool call is denied by permissions, that is the protocol working -
-  escalate to your lead rather than routing around it.
+  escalate to your foreman rather than routing around it.

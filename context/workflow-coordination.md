@@ -1,6 +1,6 @@
 # Coordination layer
 
-This layer is for coordinators only - `orch`, `principal`, and `lead`. Workers
+This layer is for coordinators only - `conductor`, `arbiter`, and `foreman`. Workers
 do not receive it and should not be told its contents; they work inside a
 feature and do not need session, git, or integration mechanics.
 
@@ -38,14 +38,14 @@ git rev-parse --abbrev-ref HEAD
 - One branch per feature: `feature/<F00N-slug>`, branched off the recorded base.
 - The feature identifier is the same string everywhere: folder name, branch
   name, and `feature=` signal value.
-- On completion, orch **squash-merges into the base branch** with a
+- On completion, conductor **squash-merges into the base branch** with a
   conventional-commits message, then deletes nothing (branches stay for
   forensics).
 
 ### Merging the reviewed commit, not the branch
 
-When GATE 2 approves a feature, principal's `work-review.md` records the exact
-commit SHA it reviewed. Orch merges **that SHA**:
+When GATE 2 approves a feature, arbiter's `work-review.md` records the exact
+commit SHA it reviewed. The conductor merges **that SHA**:
 
 ```bash
 git merge --squash <reviewed-sha>
@@ -105,7 +105,8 @@ When a group is approved:
 - **Coordination files stay at the shared checkout's
   `docs/features/current/`** - never inside a worktree. Only code lives in the
   worktree.
-- Worker aliases are suffixed per feature: `lead-F002-parser`, `impl-F002-parser`.
+- Worker aliases are suffixed per feature: `foreman-F002-parser`,
+  `builder-F002-parser`.
 - **A contract change serializes the whole group.** Park the group, apply the
   contract on base, then resume.
 - **Route every incoming signal by its `feature=` value**, never by what you
@@ -116,19 +117,19 @@ When a group is approved:
 When in doubt, do not group. A serial run that takes longer is not a failure; a
 parallel run with an interface race is.
 
-### Coordination docs are committed by orch
+### Coordination docs are committed by conductor
 
 Feature work commits code on the feature branch. The coordination documents live
 in the shared checkout and would otherwise sit uncommitted forever, leaving no
 record of the reviews that gated a merge.
 
-**Orch commits `docs/features/**` on the base branch at each transition** -
+**The conductor commits `docs/features/**` on the base branch at each transition** -
 after the decomposition is approved, after each plan approval, after each work
 review, and at integration. Nobody else commits those files.
 
 ## Feature state machine
 
-Orch maintains `feature-state.json`. Each feature is in exactly one state:
+The conductor maintains `feature-state.json`. Each feature is in exactly one state:
 
 ```
 PLANNING -> PLAN_GATE -> DEV_APPROVAL -> EXECUTING -> WORK_GATE -> MERGING -> DONE
@@ -138,12 +139,12 @@ PLANNING -> PLAN_GATE -> DEV_APPROVAL -> EXECUTING -> WORK_GATE -> MERGING -> DO
 
 | State | Meaning | Legal incoming signals |
 |---|---|---|
-| `PLANNING` | Lead is writing the plan | `PLAN_READY`, `BLOCKED`, `DESIGN_DEVIATION`, `FEATURE_STUCK` |
-| `PLAN_GATE` | Principal is reviewing the plan | `APPROVED feature=X`, `REJECTED feature=X` |
+| `PLANNING` | Foreman is writing the plan | `PLAN_READY`, `BLOCKED`, `DESIGN_DEVIATION`, `FEATURE_STUCK` |
+| `PLAN_GATE` | Arbiter is reviewing the plan | `APPROVED feature=X`, `REJECTED feature=X` |
 | `DEV_APPROVAL` | Waiting on the developer | developer input only |
 | `EXECUTING` | The team is doing the work | `FEATURE_COMPLETE`, `BLOCKED`, `DESIGN_DEVIATION`, `FEATURE_STUCK` |
-| `WORK_GATE` | Principal is spot-checking | `WORK_APPROVED feature=X`, `WORK_REJECTED feature=X` |
-| `MERGING` | Orch is merging the reviewed SHA | none (orch-internal) |
+| `WORK_GATE` | Arbiter is spot-checking | `WORK_APPROVED feature=X`, `WORK_REJECTED feature=X` |
+| `MERGING` | The conductor is merging the reviewed SHA | none (conductor-internal) |
 | `DONE` | Merged into base | none |
 | `PARKED` | Halted, awaiting the developer | `FEATURE_RESUME` |
 
@@ -176,8 +177,8 @@ is a process failure, not a review cycle.
 
 ## Design drift and the decision log
 
-When work reveals that the design is wrong or incomplete, the lead signals
-`DESIGN_DEVIATION reason="..."`. Orch then:
+When work reveals that the design is wrong or incomplete, the foreman signals
+`DESIGN_DEVIATION reason="..."`. The conductor then:
 
 1. **Asks the developer.** Never guess on ambiguity or on an architectural
    decision.
@@ -194,7 +195,8 @@ paper over.
 ## Status surface
 
 `docs/features/current/status.md` is the developer's single file for "where is
-everything". Orch rewrites it at **every** transition. It must always answer:
+everything". The conductor rewrites it at **every** transition. It must always
+answer:
 
 - What mode and base branch is this session on?
 - Which feature is active, and what state is it in?
@@ -202,8 +204,8 @@ everything". Orch rewrites it at **every** transition. It must always answer:
 - Which features are done, which are parked, and why?
 - Any protocol violations, dropped signals, or dead-lettered messages so far?
 
-Per-feature `status.md` is the lead's equivalent for its own feature, and is the
-anchor a respawned lead reads to resume.
+Per-feature `status.md` is the foreman's equivalent for its own feature, and is the
+anchor a respawned foreman reads to resume.
 
 Write it atomically (temp file, then move). Keep it short enough to read at a
 glance - it is a dashboard, not a log.

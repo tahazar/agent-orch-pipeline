@@ -21,17 +21,17 @@ PIPELINE_VERSION="1.0.0"
 
 role_default_model() {
   case "$1" in
-    orch|principal|lead|tdd-tester) echo "opus" ;;
-    tdd-reviewer|tdd-impl)          echo "sonnet" ;;
+    conductor|arbiter|foreman|prover) echo "opus" ;;
+    inspector|builder)          echo "sonnet" ;;
     *)                              echo "" ;;
   esac
 }
 
-# Empty effort means "inherit the session default". principal reviews
+# Empty effort means "inherit the session default". arbiter reviews
 # adversarially and is idle between gates, so it gets the heaviest setting.
 role_default_effort() {
   case "$1" in
-    principal) echo "xhigh" ;;
+    arbiter) echo "xhigh" ;;
     *)         echo "" ;;
   esac
 }
@@ -46,7 +46,7 @@ role_default_mcp() {
 
 role_is_known() {
   case "$1" in
-    orch|principal|lead|tdd-tester|tdd-reviewer|tdd-impl) return 0 ;;
+    conductor|arbiter|foreman|prover|inspector|builder) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -325,7 +325,7 @@ spawn_pane() {
 # ---------------------------------------------------------------------------
 
 cmd_start() {
-  local session="" agents="orch,principal"
+  local session="" agents="conductor,arbiter"
   while [ $# -gt 0 ]; do
     case "$1" in
       --session) session="${2:-}"; shift 2 ;;
@@ -825,7 +825,7 @@ cmd_watch() {
 
 usage_start() {
   cat <<EOF
-usage: $PROG start --session <name> [--agents "orch,principal"]
+usage: $PROG start --session <name> [--agents "conductor,arbiter"]
 
 Creates a detached tmux session with one pane per agent.
 Each agent entry is <role>[:<model>][:<alias>]; model defaults per role.
@@ -854,7 +854,7 @@ usage() {
   cat <<EOF
 $PROG $PIPELINE_VERSION - Agent Orchestrator Pipeline coordination CLI
 
-  start   --session <name> [--agents "orch,principal"]   create session + panes
+  start   --session <name> [--agents "conductor,arbiter"]   create session + panes
   spawn   <role>[:<model>][:<alias>]                     add an agent pane
   tell    <alias> "<message>" [--expect-ack]             send a message
   ack     <msg_id>                                       acknowledge a message

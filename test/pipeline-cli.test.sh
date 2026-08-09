@@ -45,7 +45,7 @@ printf 'pipeline CLI harness test (session %s)\n\n' "$SESSION"
 # --- start ----------------------------------------------------------------
 printf 'start:\n'
 PIPELINE_AGENT_CMD="$ECHO_AGENT" "$PIPELINE" start \
-  --session "$SESSION" --agents "orch,principal" >/dev/null 2>&1
+  --session "$SESSION" --agents "conductor,arbiter" >/dev/null 2>&1
 check $? "start exits 0"
 
 [ -f "$STATE/registry.json" ]; check $? "registry.json created"
@@ -56,53 +56,53 @@ check $? "start exits 0"
 n="$(tmux list-panes -t "$SESSION" -F '#{pane_id}' 2>/dev/null | grep -c .)"
 [ "$n" = "2" ]; check $? "two panes exist (got ${n:-0})"
 
-r="$(jq -r '.agents.orch.role' "$STATE/registry.json" 2>/dev/null)"
-[ "$r" = "orch" ]; check $? "orch registered with role"
-m="$(jq -r '.agents.principal.model' "$STATE/registry.json" 2>/dev/null)"
-[ "$m" = "opus" ]; check $? "principal defaulted to opus"
-e="$(jq -r '.agents.principal.effort' "$STATE/registry.json" 2>/dev/null)"
-[ "$e" = "xhigh" ]; check $? "principal defaulted to xhigh effort"
+r="$(jq -r '.agents.conductor.role' "$STATE/registry.json" 2>/dev/null)"
+[ "$r" = "conductor" ]; check $? "conductor registered with role"
+m="$(jq -r '.agents.arbiter.model' "$STATE/registry.json" 2>/dev/null)"
+[ "$m" = "opus" ]; check $? "arbiter defaulted to opus"
+e="$(jq -r '.agents.arbiter.effort' "$STATE/registry.json" 2>/dev/null)"
+[ "$e" = "xhigh" ]; check $? "arbiter defaulted to xhigh effort"
 
 sleep 1
 
 # --- tell -----------------------------------------------------------------
 printf '\ntell:\n'
-out="$("$PIPELINE" tell orch "hello orch [SIGNAL:STATUS_REQUEST]" --session "$SESSION" 2>&1)"
+out="$("$PIPELINE" tell conductor "hello conductor [SIGNAL:STATUS_REQUEST]" --session "$SESSION" 2>&1)"
 rc=$?
 [ "$rc" = "0" ]; check $? "tell exits 0"
-printf '%s' "$out" | grep -q '^Message sent to orch (msg=1)$'
+printf '%s' "$out" | grep -q '^Message sent to conductor (msg=1)$'
 check $? "prints the confirmation line with msg id"
 
 sleep 1
-grep -q 'hello orch' "$STATE/received-orch.log" 2>/dev/null
+grep -q 'hello conductor' "$STATE/received-conductor.log" 2>/dev/null
 check $? "message body reached the agent"
-grep -q '\[PIPELINE:' "$STATE/received-orch.log" 2>/dev/null
+grep -q '\[PIPELINE:' "$STATE/received-conductor.log" 2>/dev/null
 check $? "delivered line carries the channel token"
-grep -q 'msg=1' "$STATE/received-orch.log" 2>/dev/null
+grep -q 'msg=1' "$STATE/received-conductor.log" 2>/dev/null
 check $? "delivered line carries the msg id"
-grep -q 'hello orch' "$STATE/messages.log" 2>/dev/null
+grep -q 'hello conductor' "$STATE/messages.log" 2>/dev/null
 check $? "message appended to messages.log"
 jq -e 'select(.kind == "tell" and .signal == "[SIGNAL:STATUS_REQUEST]")' \
   "$STATE/events.jsonl" >/dev/null 2>&1
 check $? "signal recorded in events.jsonl"
 
 # A2: leading slash must not be typed as a slash command.
-"$PIPELINE" tell principal "/status is not a command here" --session "$SESSION" >/dev/null 2>&1
+"$PIPELINE" tell arbiter "/status is not a command here" --session "$SESSION" >/dev/null 2>&1
 sleep 1
-grep -q '/status is not a command here' "$STATE/received-principal.log" 2>/dev/null
+grep -q '/status is not a command here' "$STATE/received-arbiter.log" 2>/dev/null
 check $? "leading-slash message delivered intact (A2)"
-grep -qE '\] +/status' "$STATE/received-principal.log" 2>/dev/null
+grep -qE '\] +/status' "$STATE/received-arbiter.log" 2>/dev/null
 check $? "leading slash was space-guarded (A2)"
 
 # Multi-line messages spill to the inbox, signal preserved on the sent line.
-"$PIPELINE" tell orch "line one
+"$PIPELINE" tell conductor "line one
 line two [SIGNAL:PLAN_READY feature=F001-demo]" --session "$SESSION" >/dev/null 2>&1
 sleep 1
-ls "$STATE"/inbox/orch-*.md >/dev/null 2>&1
+ls "$STATE"/inbox/conductor-*.md >/dev/null 2>&1
 check $? "multi-line message spilled to inbox file"
-grep -q 'SIGNAL:PLAN_READY feature=F001-demo' "$STATE/received-orch.log" 2>/dev/null
+grep -q 'SIGNAL:PLAN_READY feature=F001-demo' "$STATE/received-conductor.log" 2>/dev/null
 check $? "signal preserved on the delivered one-liner"
-grep -q 'line two' "$STATE"/inbox/orch-*.md 2>/dev/null
+grep -q 'line two' "$STATE"/inbox/conductor-*.md 2>/dev/null
 check $? "inbox file holds the full body"
 
 # --- ack ------------------------------------------------------------------
@@ -121,18 +121,18 @@ check $? "unknown alias dead-lettered"
 # --- status ---------------------------------------------------------------
 printf '\nstatus:\n'
 s="$("$PIPELINE" status --session "$SESSION" 2>&1)"
-printf '%s' "$s" | grep -q 'orch .*alive'
-check $? "status reports orch pane alive"
+printf '%s' "$s" | grep -q 'conductor .*alive'
+check $? "status reports conductor pane alive"
 printf '%s' "$s" | grep -qE 'AGENT-STATE'
 check $? "status has an agent-state column"
 
 # --- kill -----------------------------------------------------------------
 printf '\nkill:\n'
-"$PIPELINE" kill principal --session "$SESSION" >/dev/null 2>&1
+"$PIPELINE" kill arbiter --session "$SESSION" >/dev/null 2>&1
 check $? "kill exits 0"
-st="$(jq -r '.agents.principal.status' "$STATE/registry.json" 2>/dev/null)"
-[ "$st" = "dead" ]; check $? "registry marks principal dead"
-"$PIPELINE" tell principal "you are gone" --session "$SESSION" >/dev/null 2>&1
+st="$(jq -r '.agents.arbiter.status' "$STATE/registry.json" 2>/dev/null)"
+[ "$st" = "dead" ]; check $? "registry marks arbiter dead"
+"$PIPELINE" tell arbiter "you are gone" --session "$SESSION" >/dev/null 2>&1
 [ $? != 0 ]; check $? "tell to killed agent fails loudly"
 
 # --- report ---------------------------------------------------------------

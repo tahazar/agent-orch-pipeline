@@ -1,4 +1,4 @@
-# `orch` protocol
+# `conductor` protocol
 
 Your phases run in order. On respawn, read `session.md` and `status.md` and
 resume from the recorded phase - never redo completed work.
@@ -113,21 +113,21 @@ only if you can *prove*, in writing, for that specific pair:
 Rules: **maximum 2 features per group**; a per-pair independence justification
 recorded in `feature-order.md`; **when in doubt, do not group.**
 
-Principal will reject an unproven parallel claim, and it should.
+Arbiter will reject an unproven parallel claim, and it should.
 
-### 1.3 GATE 1a - principal reviews the decomposition
+### 1.3 GATE 1a - arbiter reviews the decomposition
 
 Write everything to disk first, then:
 
 ```bash
-pipeline tell principal 'Decomposition ready for session <id>: 5 features, one proposed parallel group (F003/F004). Request is at docs/features/current/request.md, design at design.md, decomposition at feature-order.md. [SIGNAL:DECOMPOSITION_READY]'
+pipeline tell arbiter 'Decomposition ready for session <id>: 5 features, one proposed parallel group (F003/F004). Request is at docs/features/current/request.md, design at design.md, decomposition at feature-order.md. [SIGNAL:DECOMPOSITION_READY]'
 ```
 
-Principal replies `APPROVED` or `REJECTED` with **no discriminator** - that is
+Arbiter replies `APPROVED` or `REJECTED` with **no discriminator** - that is
 how you know it is the decomposition verdict.
 
 - On `REJECTED`: read `decomposition-review.md`, revise, resubmit.
-- **Maximum 2 revision cycles.** If principal rejects a third time, stop and
+- **Maximum 2 revision cycles.** If arbiter rejects a third time, stop and
   escalate to the developer with both positions summarised.
 
 ### 1.4 Developer approval
@@ -162,14 +162,14 @@ Parallel group - a worktree per feature:
 git worktree add <repo-root>/.worktrees/F00N-<slug> -b feature/F00N-<slug> <base>
 ```
 
-### 2.2 Spawn the lead and start it
+### 2.2 Spawn the foreman and start it
 
 ```bash
-pipeline spawn lead:opus:lead-F00N-<slug>      # suffix the alias only in a parallel group
-pipeline tell lead-F00N-<slug> 'Start F00N-<slug>. Requirements at docs/features/current/F00N-<slug>/requirements.md, branch feature/F00N-<slug>, base <base>. [SIGNAL:FEATURE_START feature=F00N-<slug>]'
+pipeline spawn foreman:opus:foreman-F00N-<slug>      # suffix the alias only in a parallel group
+pipeline tell foreman-F00N-<slug> 'Start F00N-<slug>. Requirements at docs/features/current/F00N-<slug>/requirements.md, branch feature/F00N-<slug>, base <base>. [SIGNAL:FEATURE_START feature=F00N-<slug>]'
 ```
 
-In a parallel group, include the worktree so the lead knows to prefix its
+In a parallel group, include the worktree so the foreman knows to prefix its
 commands: `[SIGNAL:FEATURE_START feature=F00N-<slug> worktree=<abs-path>]`.
 
 Set the feature's state to `PLANNING`.
@@ -179,22 +179,22 @@ Set the feature's state to `PLANNING`.
 On `PLAN_READY feature=X`, move X to `PLAN_GATE` and forward it:
 
 ```bash
-pipeline tell principal 'Plan ready for F00N-<slug>, tier <tier>. Plan at docs/features/current/F00N-<slug>/plan.md, requirements alongside it. [SIGNAL:PLAN_REVIEW_READY feature=F00N-<slug>]'
+pipeline tell arbiter 'Plan ready for F00N-<slug>, tier <tier>. Plan at docs/features/current/F00N-<slug>/plan.md, requirements alongside it. [SIGNAL:PLAN_REVIEW_READY feature=F00N-<slug>]'
 ```
 
-Principal replies `APPROVED feature=X` or `REJECTED feature=X`. **Route on the
+Arbiter replies `APPROVED feature=X` or `REJECTED feature=X`. **Route on the
 discriminator, not on what you last sent.**
 
-- `REJECTED`: send `PLAN_REJECTED feature=X` to the lead with the review path.
+- `REJECTED`: send `PLAN_REJECTED feature=X` to the foreman with the review path.
   Back to `PLANNING`. Max 2 plan-gate cycles, then escalate to the developer.
 - `APPROVED`: move to `DEV_APPROVAL` and take it to the developer, including the
   tier and its justification. **The developer may override the tier** - if they
-  do, tell the lead the new tier and have it re-plan against it.
+  do, tell the foreman the new tier and have it re-plan against it.
 
 Then:
 
 ```bash
-pipeline tell lead-F00N-<slug> 'Plan approved by principal and the developer, tier stays <tier>. Proceed. [SIGNAL:PLAN_APPROVED feature=F00N-<slug>]'
+pipeline tell foreman-F00N-<slug> 'Plan approved by arbiter and the developer, tier stays <tier>. Proceed. [SIGNAL:PLAN_APPROVED feature=F00N-<slug>]'
 ```
 
 Move to `EXECUTING`.
@@ -204,10 +204,10 @@ Move to `EXECUTING`.
 On `FEATURE_COMPLETE feature=X`, move X to `WORK_GATE`:
 
 ```bash
-pipeline tell principal 'F00N-<slug> reports complete on branch feature/F00N-<slug>. Spot-check it. [SIGNAL:WORK_REVIEW_READY feature=F00N-<slug>]'
+pipeline tell arbiter 'F00N-<slug> reports complete on branch feature/F00N-<slug>. Spot-check it. [SIGNAL:WORK_REVIEW_READY feature=F00N-<slug>]'
 ```
 
-Principal writes `work-review.md` and replies `WORK_APPROVED feature=X` or
+Arbiter writes `work-review.md` and replies `WORK_APPROVED feature=X` or
 `WORK_REJECTED feature=X`.
 
 **On `WORK_APPROVED`, validate the evidence header before doing anything else.**
@@ -233,7 +233,7 @@ moved after the review), **the approval is INVALID**:
 On a valid approval:
 
 ```bash
-pipeline tell lead-F00N-<slug> 'F00N-<slug> approved and merging. Tear down the team. [SIGNAL:KILL_WORKERS feature=F00N-<slug>]'
+pipeline tell foreman-F00N-<slug> 'F00N-<slug> approved and merging. Tear down the team. [SIGNAL:KILL_WORKERS feature=F00N-<slug>]'
 ```
 
 ### 2.5 Merge
@@ -251,7 +251,7 @@ and running the merge the branch could move, and merging the name would ship
 that window unreviewed.
 
 Then record the outcome (`state: DONE`, `merge_sha: <sha>`), rewrite `status.md`,
-commit `docs/features/**`, kill the lead, and start the next feature.
+commit `docs/features/**`, kill the foreman, and start the next feature.
 
 In a parallel group: a group must **fully merge** before the next serial feature
 starts, and a contract change **serializes the whole group** - park both
@@ -265,14 +265,17 @@ After the last feature merges:
 
 1. **Full test suite on the base branch.** If it fails, that is a finding, not a
    formality - park and investigate.
-2. **Rebase base on the PR target**: `git fetch origin main && git rebase origin/main`.
+2. **Rebase base on the PR target**: `git fetch origin main && git rebase
+   origin/main`.
 3. **FINAL GATE:**
 
    ```bash
-   pipeline tell principal 'All features merged onto <base> and rebased on main; suite green. Review the assembled system against request.md AND the full design. [SIGNAL:FINAL_REVIEW_READY]'
+   pipeline tell arbiter 'All features merged onto <base> and rebased on main;
+   suite green. Review the assembled system against request.md AND the full
+   design. [SIGNAL:FINAL_REVIEW_READY]'
    ```
 
-   Principal reviews against **both** `request.md` and `design.md` - the design
+   Arbiter reviews against **both** `request.md` and `design.md` - the design
    itself may have dropped or misread the request, and requirements can fall
    between features. It writes `final-review.md` and replies `FINAL_APPROVED` or
    `FINAL_REJECTED`.
@@ -303,11 +306,11 @@ After the last feature merges:
 
 You own them exclusively.
 
-1. A `BLOCKED reason="need contract change: ..."` reaches you from a lead.
+1. A `BLOCKED reason="need contract change: ..."` reaches you from a foreman.
 2. You write the proposal to `contract-change-<n>.md`: what shape changes, why,
    which features are affected.
-3. Gate it: `pipeline tell principal '... [SIGNAL:CONTRACT_REVIEW reason="..."]'`.
-   Principal replies `APPROVED contract` or `REJECTED contract` - it will reject
+3. Gate it: `pipeline tell arbiter '... [SIGNAL:CONTRACT_REVIEW reason="..."]'`.
+   Arbiter replies `APPROVED contract` or `REJECTED contract` - it will reject
    over-stuffing and unnecessary coupling.
 4. Apply it **on the base branch, between features**. Never mid-feature, and
    never inside a worktree.
@@ -315,13 +318,13 @@ You own them exclusively.
 
 ## Design deviations
 
-On `DESIGN_DEVIATION reason="..."` from a lead:
+On `DESIGN_DEVIATION reason="..."` from a foreman:
 
 1. **Ask the developer.** Never guess on ambiguity or on an architectural
    decision.
 2. Record the approved divergence in `design-decisions.md` (append-only).
 3. Update the affected `requirements.md` files so later features see it.
-4. Tell the lead what was decided.
+4. Tell the foreman what was decided.
 
 ## Handling the developer
 

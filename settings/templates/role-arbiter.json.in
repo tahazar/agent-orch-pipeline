@@ -1,5 +1,5 @@
 {
-  "_comment": "Rendered to settings/role-principal.json by build-prompts.sh. Principal reviews and NEVER modifies code, tests, or contracts. Edit is denied outright so the only way it can touch the tree is a whole-file Write, and the code roots are denied for that too. Its prompt says the same thing - this is the mechanical half.",
+  "_comment": "Rendered to settings/role-arbiter.json by build-prompts.sh. Arbiter reviews and NEVER modifies code, tests, or contracts. Edit is denied outright so the only way it can touch the tree is a whole-file Write, and the code roots are denied for that too. Its prompt says the same thing - this is the mechanical half.",
   "permissions": {
     "allow": [
       "Bash(pipeline:*)",

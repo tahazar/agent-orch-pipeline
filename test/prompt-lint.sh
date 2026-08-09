@@ -19,9 +19,9 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
 
-ROLES="orch principal lead tdd-tester tdd-reviewer tdd-impl"
-WORKERS="tdd-tester tdd-reviewer tdd-impl"
-COORDINATORS="orch principal lead"
+ROLES="conductor arbiter foreman prover inspector builder"
+WORKERS="prover inspector builder"
+COORDINATORS="conductor arbiter foreman"
 
 printf 'prompt lint\n\n'
 
@@ -48,7 +48,7 @@ for role in $WORKERS; do
     ok "$role correctly lacks the coordination layer"
   fi
 done
-for role in lead $WORKERS; do
+for role in foreman $WORKERS; do
   n="$(grep -c 'layer: playbook-' "$PROMPTS/$role.md" 2>/dev/null || true)"
   if [ "${n:-0}" = "3" ]; then ok "$role embeds all three playbooks"
   else bad "$role embeds ${n:-0} playbooks, expected 3"; fi
@@ -90,17 +90,17 @@ else
   bad "signals used but not documented in workflow.md:$undocumented"
 fi
 
-# Signals orch must never see are worker-internal; make sure orch's own role
+# Signals conductor must never see are worker-internal; make sure conductor's own role
 # file does not route them.
 internal="TESTS_READY AUDIT_PASS AUDIT_FAIL IMPL_COMPLETE REVIEW_PASS REVIEW_FAIL"
 leaked=""
 for sig in $internal; do
-  grep -q "$sig" "$CONTEXT/orch-role.md" 2>/dev/null && leaked="$leaked $sig"
+  grep -q "$sig" "$CONTEXT/conductor-role.md" 2>/dev/null && leaked="$leaked $sig"
 done
 if [ -z "$leaked" ]; then
-  ok "orch does not handle playbook-internal signals"
+  ok "conductor does not handle playbook-internal signals"
 else
-  bad "orch role file references playbook-internal signals:$leaked"
+  bad "conductor role file references playbook-internal signals:$leaked"
 fi
 
 # --- cycle caps stated consistently ---------------------------------------
@@ -125,22 +125,22 @@ check_cap "spot-check"       "max(imum)? [0-9]+ spot-check cycles" 2
 # --- communication hierarchy ----------------------------------------------
 printf '\nhierarchy:\n'
 for role in $WORKERS; do
-  if grep -q "pipeline tell orch" "$CONTEXT/$role-role.md" 2>/dev/null; then
-    bad "$role is told to message orch directly"
+  if grep -q "pipeline tell conductor" "$CONTEXT/$role-role.md" 2>/dev/null; then
+    bad "$role is told to message conductor directly"
   else
-    ok "$role never messages orch directly"
+    ok "$role never messages conductor directly"
   fi
 done
-if grep -qE "pipeline tell (lead|tester|reviewer|impl)" "$CONTEXT/principal-role.md" 2>/dev/null; then
-  bad "principal is told to message a lead or a worker"
+if grep -qE "pipeline tell (foreman|prover|inspector|builder)" "$CONTEXT/arbiter-role.md" 2>/dev/null; then
+  bad "arbiter is told to message a foreman or a worker"
 else
-  ok "principal only messages orch"
+  ok "arbiter only messages conductor"
 fi
 
 # --- file ownership: one writer per artifact ------------------------------
 printf '\nfile ownership:\n'
 # Check each ownership table on its own. `status.md` appears in both - the
-# session rollup owned by orch, and the per-feature one owned by lead - and
+# session rollup owned by conductor, and the per-feature one owned by foreman - and
 # those are different files, so a global uniqueness check would be wrong.
 check_table_unique() {
   local heading="$1" label="$2" dupes
@@ -165,7 +165,7 @@ else
 fi
 
 # --- mechanical denies match the written invariants -----------------------
-# The prompt says "impl NEVER edits tests"; the settings must actually deny it.
+# The prompt says "builder NEVER edits tests"; the settings must actually deny it.
 # If these drift apart, the invariant silently becomes advisory again.
 printf '\ninvariants are mechanically enforced:\n'
 
@@ -175,43 +175,43 @@ deny_has() {
     | grep -qE "$pattern"
 }
 
-if deny_has tdd-impl 'Edit\(\*\*/test' && deny_has tdd-impl 'Edit\(\*\*/\*\.test'; then
-  ok "tdd-impl is denied editing tests (matches its invariant)"
+if deny_has builder 'Edit\(\*\*/test' && deny_has builder 'Edit\(\*\*/\*\.test'; then
+  ok "builder is denied editing tests (matches its invariant)"
 else
-  bad "tdd-impl says it never edits tests, but the settings do not deny it"
+  bad "builder says it never edits tests, but the settings do not deny it"
 fi
-if deny_has tdd-impl 'contracts'; then
-  ok "tdd-impl is denied editing contracts"
+if deny_has builder 'contracts'; then
+  ok "builder is denied editing contracts"
 else
-  bad "tdd-impl says it never edits contracts, but the settings do not deny it"
+  bad "builder says it never edits contracts, but the settings do not deny it"
 fi
-if deny_has tdd-tester 'Edit\(\*\*/src'; then
-  ok "tdd-tester is denied editing implementation code"
+if deny_has prover 'Edit\(\*\*/src'; then
+  ok "prover is denied editing implementation code"
 else
-  bad "tdd-tester says it never edits implementation, but the settings do not deny it"
+  bad "prover says it never edits implementation, but the settings do not deny it"
 fi
-if deny_has principal '^Edit$'; then
-  ok "principal is denied Edit outright (never modifies code)"
+if deny_has arbiter '^Edit$'; then
+  ok "arbiter is denied Edit outright (never modifies code)"
 else
-  bad "principal says it never modifies code, but Edit is not denied"
+  bad "arbiter says it never modifies code, but Edit is not denied"
 fi
-if deny_has tdd-reviewer '^Edit$'; then
-  ok "tdd-reviewer is denied Edit outright (never fixes anything)"
+if deny_has inspector '^Edit$'; then
+  ok "inspector is denied Edit outright (never fixes anything)"
 else
-  bad "tdd-reviewer says it never fixes anything, but Edit is not denied"
+  bad "inspector says it never fixes anything, but Edit is not denied"
 fi
-for role in principal lead tdd-tester tdd-reviewer tdd-impl; do
+for role in arbiter foreman prover inspector builder; do
   if deny_has "$role" 'Bash\(git push'; then
-    ok "$role cannot git push (integration is orch's)"
+    ok "$role cannot git push (integration is conductor's)"
   else
     bad "$role is not denied git push"
   fi
 done
 if jq -e '.permissions.allow | index("Bash(git push:*)")' \
-   "$SETTINGS/templates/role-orch.json.in" >/dev/null 2>&1; then
-  ok "orch is allowed to push (it owns integration)"
+   "$SETTINGS/templates/role-conductor.json.in" >/dev/null 2>&1; then
+  ok "conductor is allowed to push (it owns integration)"
 else
-  bad "orch cannot push, but it owns integration"
+  bad "conductor cannot push, but it owns integration"
 fi
 
 # The channel deadlocks on its own permission dialogs unless every role can run
@@ -245,19 +245,57 @@ require_phrase "$CONTEXT/workflow-coordination.md" "git merge --squash <reviewed
   "merge the reviewed SHA, not the branch"
 require_phrase "$CONTEXT/workflow-coordination.md" "Record the intent before performing the action" \
   "write-ahead state rule"
-require_phrase "$CONTEXT/orch-role.md" "does NOT count against the 2 spot-check cycles" \
+require_phrase "$CONTEXT/conductor-role.md" "does NOT count against the 2 spot-check cycles" \
   "invalid evidence header does not consume a cycle"
-require_phrase "$CONTEXT/principal-role.md" "commit-sha:" \
+require_phrase "$CONTEXT/arbiter-role.md" "commit-sha:" \
   "evidence header shape is specified"
 
-# --- rename hygiene -------------------------------------------------------
-printf '\nrename hygiene:\n'
-stale="$(grep -rilE 'kiro-?hive|devhive' "$CONTEXT" "$PROMPTS" "$SETTINGS" "$ROOT/pipeline" \
-         "$ROOT/install.sh" "$ROOT/build-prompts.sh" 2>/dev/null | tr '\n' ' ')"
+# --- naming hygiene -------------------------------------------------------
+# This project uses its own vocabulary. Guard against any predecessor's agent
+# names leaking back in through a copied snippet or a half-finished edit.
+printf '\nnaming hygiene:\n'
+LEGACY_AGENTS='\b(orch|principal|tdd-(tester|reviewer|impl))\b'
+
+# Scan tracked source plus the assembled prompts. Rendered settings are skipped
+# deliberately: they embed this checkout's absolute path, and a repository
+# directory named `agent-orch-pipeline` would match `orch` on the path alone.
+# The repository directory is itself named `agent-orch-pipeline`, and `-` is a
+# word boundary, so strip that one known token before matching rather than
+# loosening the pattern and letting real leakage through.
+REPO_NAME="$(basename "$ROOT")"
+stale=""
+for f in $( { (cd "$ROOT" && git ls-files 'context/*' 'test/*' 'skills/*' \
+                'settings/templates/*' README.md pipeline install.sh build-prompts.sh \
+                2>/dev/null | sed "s|^|$ROOT/|");
+              ls "$PROMPTS"/*.md 2>/dev/null; } | grep -v 'prompt-lint.sh' ); do
+  [ -f "$f" ] || continue
+  if sed "s|$REPO_NAME||g" "$f" | grep -qE "$LEGACY_AGENTS"; then
+    stale="$stale $(basename "$f")"
+  fi
+done
 if [ -z "$(printf '%s' "$stale" | tr -d ' ')" ]; then
-  ok "no stale hive/DevHive naming survives"
+  ok "no legacy agent names survive"
 else
-  bad "stale naming found in: $stale"
+  bad "legacy agent names found in: $stale"
+fi
+
+# Every role must have all three of its source files, and no orphans.
+for role in $ROLES; do
+  missing=""
+  [ -f "$CONTEXT/identity/$role.md" ]        || missing="$missing identity"
+  [ -f "$CONTEXT/$role-role.md" ]            || missing="$missing role"
+  [ -f "$SETTINGS/templates/role-$role.json.in" ] || missing="$missing settings"
+  if [ -z "$missing" ]; then ok "$role has identity, role, and settings files"
+  else bad "$role is missing:$missing"; fi
+done
+orphans="$(ls "$CONTEXT"/*-role.md 2>/dev/null | sed -e 's|.*/||' -e 's|-role\.md$||' \
+           | while read -r r; do
+               case " $ROLES " in *" $r "*) ;; *) printf '%s ' "$r" ;; esac
+             done)"
+if [ -z "$(printf '%s' "$orphans" | tr -d ' ')" ]; then
+  ok "no orphaned role files from a previous naming"
+else
+  bad "orphaned role files: $orphans"
 fi
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

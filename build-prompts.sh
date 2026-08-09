@@ -5,8 +5,8 @@
 #
 #   1. context/identity/<role>.md        identity + INVARIANTS  (all roles)
 #   2. context/workflow.md               shared protocol        (all roles)
-#   3. context/workflow-coordination.md  coordination           (orch/principal/lead ONLY)
-#   4. context/playbook-*.md             the three playbooks    (lead + workers)
+#   3. context/workflow-coordination.md  coordination           (conductor/arbiter/foreman ONLY)
+#   4. context/playbook-*.md             the three playbooks    (foreman + workers)
 #   5. context/<role>-role.md            phase-by-phase protocol (all roles)
 #
 # Workers must NOT receive the coordination layer. `<!-- layer: NAME -->`
@@ -22,9 +22,9 @@ CONTEXT="$HERE/context"
 OUT="$HERE/prompts"
 SETTINGS="$HERE/settings"
 
-ROLES="orch principal lead tdd-tester tdd-reviewer tdd-impl"
-COORDINATORS="orch principal lead"
-PLAYBOOK_ROLES="lead tdd-tester tdd-reviewer tdd-impl"
+ROLES="conductor arbiter foreman prover inspector builder"
+COORDINATORS="conductor arbiter foreman"
+PLAYBOOK_ROLES="foreman prover inspector builder"
 
 errors=0
 
@@ -53,6 +53,24 @@ emit_layer() {
 }
 
 mkdir -p "$OUT" || exit 1
+
+# Prune artifacts left behind by a role that no longer exists, so a rename
+# cannot leave a stale prompt or settings file sitting next to the real ones.
+prune_orphans() {
+  local dir="$1" pattern="$2" strip_prefix="$3" strip_suffix="$4" f name
+  for f in "$dir"/$pattern; do
+    [ -e "$f" ] || continue
+    name="$(basename "$f")"
+    name="${name#$strip_prefix}"
+    name="${name%$strip_suffix}"
+    case " $ROLES " in
+      *" $name "*) ;;
+      *) rm -f "$f"; printf 'pruned %s (no such role)\n' "$(basename "$f")" ;;
+    esac
+  done
+}
+prune_orphans "$OUT" '*.md' '' '.md'
+prune_orphans "$SETTINGS" 'role-*.json' 'role-' '.json'
 
 for role in $ROLES; do
   out="$OUT/$role.md"
