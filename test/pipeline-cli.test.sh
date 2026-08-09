@@ -140,5 +140,82 @@ printf '\nreport:\n'
 "$PIPELINE" report --session "$SESSION" 2>&1 | grep -q 'Signals in order'
 check $? "report renders a timeline"
 
+# --- an agent that dies on startup ---------------------------------------
+# The regression this suite previously missed: `tmux new-session -d` returns 0
+# the moment the session exists, so an agent whose command exits at once (a
+# missing binary, an unknown flag, bad settings) was reported as "Spawned" -
+# and the next split-window then failed against a server that had already gone.
+printf '\ndead agent on startup:\n'
+
+FAIL_AGENT="$(mktemp "/tmp/pipeline-fail-agent.XXXXXX")"
+cat > "$FAIL_AGENT" <<'EOF'
+#!/bin/bash
+echo "error: unknown option '--name'" >&2
+exit 3
+EOF
+chmod +x "$FAIL_AGENT"
+
+DEAD_SESSION="pipeline-deadtest-$$"
+DEAD_STATE="/tmp/pipeline-$DEAD_SESSION"
+out="$(PIPELINE_AGENT_CMD="$FAIL_AGENT" "$PIPELINE" start \
+       --session "$DEAD_SESSION" --agents "conductor,arbiter" 2>&1)"
+rc=$?
+
+[ "$rc" != "0" ]; check $? "start exits non-zero when the first agent dies"
+printf '%s' "$out" | grep -q 'exited immediately'
+check $? "reports that the agent exited immediately"
+printf '%s' "$out" | grep -qF "unknown option '--name'"
+check $? "surfaces what the pane actually printed"
+printf '%s' "$out" | grep -q '^Spawned'
+[ $? != 0 ]; check $? "never claims 'Spawned' for an agent that died"
+tmux has-session -t "$DEAD_SESSION" 2>/dev/null
+[ $? != 0 ]; check $? "leaves no half-created tmux session"
+[ ! -d "$DEAD_STATE" ]; check $? "leaves no stale state directory"
+
+# Cleanup must be good enough that an immediate re-run works.
+PIPELINE_AGENT_CMD="$ECHO_AGENT" "$PIPELINE" start \
+  --session "$DEAD_SESSION" --agents "conductor,arbiter" >/dev/null 2>&1
+check $? "a re-run after a failed start succeeds"
+tmux kill-session -t "$DEAD_SESSION" 2>/dev/null; rm -rf "$DEAD_STATE"
+
+# The same must hold when it is the SECOND agent that dies.
+SECOND_AGENT="$(mktemp "/tmp/pipeline-second-agent.XXXXXX")"
+cat > "$SECOND_AGENT" <<'EOF'
+#!/bin/bash
+# Healthy as the conductor, fatal as anything else.
+if [ "${1:-}" = "conductor" ]; then
+  echo "ready"; while IFS= read -r l; do :; done
+else
+  echo "boom: bad settings file" >&2; exit 9
+fi
+EOF
+chmod +x "$SECOND_AGENT"
+out="$(PIPELINE_AGENT_CMD="$SECOND_AGENT" "$PIPELINE" start \
+       --session "$DEAD_SESSION" --agents "conductor,arbiter" 2>&1)"
+rc=$?
+[ "$rc" != "0" ]; check $? "start fails when the second agent dies"
+printf '%s' "$out" | grep -qF 'boom: bad settings file'
+check $? "surfaces the second agent's error"
+tmux has-session -t "$DEAD_SESSION" 2>/dev/null
+[ $? != 0 ]; check $? "tears the whole session down, not just the dead pane"
+[ ! -d "$DEAD_STATE" ]; check $? "removes the state directory too"
+rm -f "$FAIL_AGENT" "$SECOND_AGENT"
+
+# --- doctor ---------------------------------------------------------------
+printf '\ndoctor:\n'
+"$PIPELINE" doctor >/dev/null 2>&1
+check $? "doctor exits 0 on a healthy install"
+"$PIPELINE" doctor 2>&1 | grep -q 'the command a conductor pane runs'
+check $? "doctor prints the exact pane command"
+"$PIPELINE" doctor 2>&1 | grep -qE 'yes  --|no   --'
+check $? "doctor reports which optional flags this build supports"
+
+mv "$ROOT/prompts/conductor.md" "$ROOT/prompts/conductor.md.bak"
+out="$("$PIPELINE" doctor 2>&1)"; rc=$?
+mv "$ROOT/prompts/conductor.md.bak" "$ROOT/prompts/conductor.md"
+[ "$rc" != "0" ]; check $? "doctor exits non-zero when a prompt is missing"
+printf '%s' "$out" | grep -q 'FAIL conductor'
+check $? "doctor names the role whose files are missing"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]

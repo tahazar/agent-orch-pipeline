@@ -142,6 +142,7 @@ Everything else:
 pipeline status                    # who is alive, and whether they are wedged
 pipeline logs --follow             # live message audit trail
 pipeline report                    # timeline, protocol violations, delivery problems
+pipeline doctor                    # diagnose the install: claude path, flags, role files
 pipeline tell conductor "status"   # ask the conductor directly
 ```
 
@@ -265,6 +266,32 @@ says.
 pipeline logs | tail -20
 pipeline report                # dropped signals, dead letters, violations
 ```
+
+### An agent exits immediately / "no server running"
+
+```
+pipeline: conductor exited immediately (status 3) - it never started.
+Its pane said:
+  error: unknown option '--name'
+Run `pipeline doctor` to see the exact command and environment.
+```
+
+The agent's `claude` command failed before it started. The pane's own output is
+quoted back at you, and the half-created session is cleaned up so you can just
+fix it and re-run. `pipeline doctor` prints the resolved `claude` path, which
+optional flags your build supports, and the exact command a pane runs — paste
+that command into a shell to reproduce it by hand.
+
+If you saw the older, blanker version of this failure:
+
+```
+Spawned conductor (conductor, opus)
+no server running on /private/tmp/tmux-501/default
+```
+
+that was the same thing before the diagnosis existed: the first agent died, its
+death took the session and the tmux server with it, and the second spawn then
+reported a server that had already gone. Upgrade and re-run.
 
 ### A pane is blocked on a permission dialog
 

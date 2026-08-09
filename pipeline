@@ -214,16 +214,41 @@ pane_alive() {
 # Pane command construction
 # ---------------------------------------------------------------------------
 
-# Probe once whether this claude build supports --append-system-prompt-file.
-# The file form avoids argv size limits on large prompts; the inline form is
-# the documented one.
-append_prompt_flag() {
-  local cache="$STATE_DIR/.append-prompt-flag"
-  if [ -f "$cache" ]; then cat "$cache"; return; fi
-  local flag="inline"
-  if claude --help 2>&1 | grep -q -- '--append-system-prompt-file'; then flag="file"; fi
-  printf '%s' "$flag" > "$cache" 2>/dev/null || true
-  printf '%s' "$flag"
+# Resolve `claude` to an absolute path once. Panes run their command through a
+# non-interactive shell, and a tmux server that was already running carries its
+# own (possibly staler) PATH - so passing a bare `claude` is how you get an
+# agent that dies instantly with "command not found", intermittently.
+CLAUDE_BIN=""
+resolve_claude() {
+  if [ -n "$CLAUDE_BIN" ]; then printf '%s' "$CLAUDE_BIN"; return 0; fi
+  local p
+  p="$(command -v claude 2>/dev/null)" || return 1
+  [ -n "$p" ] || return 1
+  case "$p" in
+    /*) ;;
+    *) p="$(cd "$(dirname "$p")" 2>/dev/null && pwd)/$(basename "$p")" ;;
+  esac
+  # A shell function or alias named `claude` is not something a pane can run.
+  [ -x "$p" ] || return 1
+  CLAUDE_BIN="$p"
+  printf '%s' "$p"
+}
+
+# Cache `claude --help` once, then answer flag questions from it. Flags differ
+# across builds, and passing one this build does not have makes claude exit
+# immediately - which used to surface as an unexplained dead pane.
+CLAUDE_HELP=""
+claude_help() {
+  if [ -z "$CLAUDE_HELP" ]; then
+    local bin
+    bin="$(resolve_claude)" || return 1
+    CLAUDE_HELP="$("$bin" --help 2>&1 || true)"
+  fi
+  printf '%s' "$CLAUDE_HELP"
+}
+
+claude_supports() {
+  claude_help 2>/dev/null | grep -q -- "$1"
 }
 
 # Build the shell command a pane runs, as a single string for tmux.
@@ -241,23 +266,36 @@ build_agent_cmd() {
   [ -f "$prompt_file" ] || die "missing prompt for role '$role' at $prompt_file (run build-prompts.sh)"
 
   local settings_file="$INSTALL_DIR/settings/role-$role.json"
-  local cmd="claude"
+  local bin cmd
+  bin="$(resolve_claude)" || die "cannot find the 'claude' executable on PATH"
+  cmd="$(shq "$bin")"
 
-  if [ "$(append_prompt_flag)" = "file" ]; then
+  # Every optional flag is gated on this build actually having it. An unknown
+  # flag makes claude exit before it starts, which presents as a pane that
+  # died for no visible reason.
+  if claude_supports -- '--append-system-prompt-file'; then
     cmd="$cmd --append-system-prompt-file $(shq "$prompt_file")"
   else
     cmd="$cmd --append-system-prompt \"\$(cat $(shq "$prompt_file"))\""
   fi
 
-  # --name is the join key that lets `pipeline status` tell whether THIS
-  # agent is alive, rather than guessing from the working directory.
-  cmd="$cmd --name $(shq "$alias")"
-  cmd="$cmd --model $(shq "$model") --permission-mode acceptEdits"
-  [ -f "$settings_file" ] && cmd="$cmd --settings $(shq "$settings_file")"
-  [ -n "$effort" ] && cmd="$cmd --effort $(shq "$effort")"
-  if [ -n "$mcp" ]; then
+  # --name is the join key that lets `pipeline status` tell whether THIS agent
+  # is alive. Without it that column degrades to "unknown" rather than lying.
+  claude_supports -- '--name' && cmd="$cmd --name $(shq "$alias")"
+
+  cmd="$cmd --model $(shq "$model")"
+  claude_supports -- '--permission-mode' && cmd="$cmd --permission-mode acceptEdits"
+  if [ -f "$settings_file" ] && claude_supports -- '--settings'; then
+    cmd="$cmd --settings $(shq "$settings_file")"
+  fi
+  if [ -n "$effort" ] && claude_supports -- '--effort'; then
+    cmd="$cmd --effort $(shq "$effort")"
+  fi
+  if [ -n "$mcp" ] && claude_supports -- '--mcp-config'; then
     cmd="$cmd --mcp-config $(shq "$mcp")"
-    [ "$strict_mcp" = "1" ] && cmd="$cmd --strict-mcp-config"
+    if [ "$strict_mcp" = "1" ] && claude_supports -- '--strict-mcp-config'; then
+      cmd="$cmd --strict-mcp-config"
+    fi
   fi
   printf '%s' "$cmd"
 }
@@ -294,23 +332,63 @@ register_agent() {
     --arg effort "$4" --arg mcp "$5" --arg pane "$6" --arg ts "$(now_iso)"
 }
 
-# Create a pane running an agent. Environment is injected with -e so the agent
-# knows its own address and the hooks know which pane to recolor.
-spawn_pane() {
-  local alias="$1" role="$2" model="$3" effort="$4" mcp="$5" strict="$6" first="$7"
-  local cmd pane
-  cmd="$(build_agent_cmd "$role" "$model" "$effort" "$mcp" "$strict" "$alias")" || exit 1
+# How long to watch a freshly spawned pane before believing it started.
+: "${PIPELINE_SPAWN_SETTLE:=10}"   # tenths of a second
 
-  if [ "$first" = "1" ]; then
-    tmux new-session -d -s "$SESSION" -c "$PWD" \
-      -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
-      "$cmd" || die "failed to create tmux session '$SESSION'"
-    pane="$(tmux list-panes -t "$SESSION" -F '#{pane_id}' | head -1)"
+# An agent whose command exits at once (missing binary, unknown flag, bad
+# settings) used to be reported as "Spawned" - `tmux new-session` returns 0 the
+# moment the session exists, and nobody looked again. Watch the pane instead,
+# and treat exiting as the failure it is.
+pane_started_ok() {
+  local pane="$1" waited=0 dead
+  while [ "$waited" -lt "$PIPELINE_SPAWN_SETTLE" ]; do
+    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}' 2>/dev/null || echo 1)"
+    [ "$dead" = "1" ] && return 1
+    pane_alive "$pane" || return 1
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  return 0
+}
+
+# Report why an agent never started, using what its pane actually printed.
+# Needs the full scrollback: tmux overwrites the visible screen with its own
+# "Pane is dead" line, so a plain capture-pane loses the error.
+report_dead_pane() {
+  local alias="$1" pane="$2" status out
+  status="$(tmux display-message -p -t "$pane" '#{pane_dead_status}' 2>/dev/null)"
+  out="$(tmux capture-pane -p -S - -t "$pane" 2>/dev/null \
+        | grep -v '^[[:space:]]*$' | grep -v '^Pane is dead' | tail -12)"
+  printf '%s: %s exited immediately (status %s) - it never started.\n' \
+    "$PROG" "$alias" "${status:-unknown}" >&2
+  if [ -n "$out" ]; then
+    printf 'Its pane said:\n' >&2
+    printf '%s\n' "$out" | sed 's/^/  /' >&2
   else
-    pane="$(tmux split-window -t "$SESSION" -c "$PWD" -P -F '#{pane_id}' \
-      -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
-      "$cmd")" || die "failed to spawn pane for '$alias'"
-    tmux select-layout -t "$SESSION" tiled >/dev/null 2>&1 || true
+    printf '(its pane produced no output)\n' >&2
+  fi
+  printf 'Run `%s doctor` to see the exact command and environment.\n' "$PROG" >&2
+}
+
+# Create a pane running an agent. Environment is injected with -e so the agent
+# knows its own address and the hooks know which pane to recolor. The session
+# must already exist - cmd_start establishes it with a holder pane so that
+# remain-on-exit is in force before any agent command runs.
+spawn_pane() {
+  local alias="$1" role="$2" model="$3" effort="$4" mcp="$5" strict="$6"
+  local cmd pane
+  cmd="$(build_agent_cmd "$role" "$model" "$effort" "$mcp" "$strict" "$alias")" || return 1
+
+  pane="$(tmux split-window -t "$SESSION" -c "$PWD" -P -F '#{pane_id}' \
+    -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
+    "$cmd" 2>/dev/null)" || { warn "tmux could not create a pane for '$alias'"; return 1; }
+  tmux select-layout -t "$SESSION" tiled >/dev/null 2>&1 || true
+
+  if ! pane_started_ok "$pane"; then
+    report_dead_pane "$alias" "$pane"
+    emit_event "spawn_failed" "$(jq -n --arg a "$alias" --arg r "$role" \
+      '{alias:$a, role:$r}')"
+    return 1
   fi
 
   tmux select-pane -t "$pane" -T "$alias" >/dev/null 2>&1 || true
@@ -345,6 +423,28 @@ cmd_start() {
   tmux has-session -t "$SESSION" 2>/dev/null && \
     die "tmux session '$SESSION' already exists (attach with: $PROG attach --session $SESSION)"
 
+  # Preflight: fail before touching tmux rather than half-creating a session.
+  if [ -z "${PIPELINE_AGENT_CMD:-}" ]; then
+    resolve_claude >/dev/null || die "cannot find the 'claude' executable on PATH - run: $PROG doctor"
+    local spec_check role_check oldifs_pf="$IFS"
+    IFS=','
+    for spec_check in $agents; do
+      IFS="$oldifs_pf"
+      spec_check="$(printf '%s' "$spec_check" | sed -e 's/^ *//' -e 's/ *$//')"
+      if [ -n "$spec_check" ]; then
+        role_check="$(printf '%s' "$spec_check" | cut -d: -f1)"
+        [ -f "$INSTALL_DIR/prompts/$role_check.md" ] || \
+          die "missing prompt for role '$role_check' - run: $INSTALL_DIR/build-prompts.sh"
+        if [ -f "$INSTALL_DIR/settings/role-$role_check.json" ] && command -v jq >/dev/null 2>&1; then
+          jq -e . "$INSTALL_DIR/settings/role-$role_check.json" >/dev/null 2>&1 || \
+            die "settings/role-$role_check.json is not valid JSON - run: $INSTALL_DIR/build-prompts.sh"
+        fi
+      fi
+      IFS=','
+    done
+    IFS="$oldifs_pf"
+  fi
+
   mkdir -p "$STATE_DIR/inbox" "$STATE_DIR/acks" || die "cannot create $STATE_DIR"
   : > "$(messages_log)"
   : > "$(events_log)"
@@ -363,22 +463,47 @@ cmd_start() {
   jq -n --arg s "$SESSION" --arg ts "$(now_iso)" --arg cwd "$PWD" \
     '{session:$s, created:$ts, cwd:$cwd, agents:{}}' | registry_write
 
-  local first=1 spec oldifs="$IFS"
+  # Establish the server with a holder pane FIRST, so remain-on-exit is in
+  # force before any agent command runs. Setting it afterwards is too late: the
+  # first agent's command has already exited, taking the session and the server
+  # with it, and the error you get is "no server running".
+  tmux new-session -d -s "$SESSION" -c "$PWD" \
+    'while :; do sleep 3600; done' || die "failed to create tmux session '$SESSION'"
+  local holder
+  holder="$(tmux list-panes -t "$SESSION" -F '#{pane_id}' | head -1)"
+  tmux set-option -w -t "$SESSION" remain-on-exit on >/dev/null 2>&1 || true
+
+  local spec oldifs="$IFS" failed=""
   IFS=','
   for spec in $agents; do
     IFS="$oldifs"
     spec="$(printf '%s' "$spec" | sed -e 's/^ *//' -e 's/ *$//')"
-    if [ -n "$spec" ]; then
+    if [ -n "$spec" ] && [ -z "$failed" ]; then
       SPEC_EFFORT=""; SPEC_MCP=""; SPEC_STRICT_MCP="0"
       parse_agent_spec "$spec"
-      spawn_pane "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL" "$SPEC_EFFORT" \
-                 "$SPEC_MCP" "$SPEC_STRICT_MCP" "$first" >/dev/null
-      printf 'Spawned %s (%s, %s)\n' "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL"
-      first=0
+      if spawn_pane "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL" "$SPEC_EFFORT" \
+                    "$SPEC_MCP" "$SPEC_STRICT_MCP" >/dev/null; then
+        printf 'Spawned %s (%s, %s)\n' "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL"
+      else
+        failed="$SPEC_ALIAS"
+      fi
     fi
     IFS=','
   done
   IFS="$oldifs"
+
+  # A half-created session is worse than none: the next run would trip over
+  # "session already exists" and a registry describing agents that never ran.
+  if [ -n "$failed" ]; then
+    tmux kill-session -t "$SESSION" >/dev/null 2>&1 || true
+    rm -rf "$STATE_DIR"
+    printf '\n%s: session "%s" was not started (cleaned up). Fix the above and re-run.\n' \
+      "$PROG" "$SESSION" >&2
+    exit 1
+  fi
+
+  tmux kill-pane -t "$holder" >/dev/null 2>&1 || true
+  tmux select-layout -t "$SESSION" tiled >/dev/null 2>&1 || true
 
   # Let agent notifications reach the outer terminal. Agent-aware terminals ring
   # a pane and light up its tab on an OSC 9 sequence, but tmux drops OSC it does
@@ -422,7 +547,8 @@ cmd_spawn() {
   fi
 
   spawn_pane "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL" "$SPEC_EFFORT" \
-             "$SPEC_MCP" "$SPEC_STRICT_MCP" 0 >/dev/null
+             "$SPEC_MCP" "$SPEC_STRICT_MCP" >/dev/null \
+    || die "could not spawn '$SPEC_ALIAS'"
   printf 'Spawned %s (%s, %s)\n' "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL"
 }
 
@@ -799,6 +925,92 @@ cmd_report() {
   if [ -n "$d" ]; then printf '%s\n' "$d"; else printf '  none\n'; fi
 }
 
+# ---------------------------------------------------------------------------
+# cmd: doctor
+# ---------------------------------------------------------------------------
+
+cmd_doctor() {
+  local problems=0
+  local roles="conductor arbiter foreman prover inspector builder"
+
+  printf 'Agent Orchestrator Pipeline - doctor\n\n'
+  printf 'install dir: %s\n\n' "$INSTALL_DIR"
+
+  printf 'environment:\n'
+  if command -v tmux >/dev/null 2>&1; then
+    printf '  tmux            %s\n' "$(tmux -V 2>/dev/null)"
+  else
+    printf '  tmux            MISSING\n'; problems=$((problems + 1))
+  fi
+  if tmux list-sessions >/dev/null 2>&1; then
+    printf '  tmux server     already running (panes inherit ITS environment, not this shell'"'"'s)\n'
+  else
+    printf '  tmux server     not running (will be started fresh)\n'
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    printf '  jq              %s\n' "$(jq --version 2>/dev/null)"
+  else
+    printf '  jq              MISSING\n'; problems=$((problems + 1))
+  fi
+
+  local bin
+  if bin="$(resolve_claude)"; then
+    printf '  claude          %s\n' "$bin"
+    printf '  claude version  %s\n' "$("$bin" --version 2>/dev/null | head -1)"
+  else
+    printf '  claude          MISSING - not on PATH, or it is a shell alias/function\n'
+    problems=$((problems + 1))
+  fi
+
+  if [ -n "$bin" ]; then
+    printf '\noptional flags this build supports:\n'
+    local f
+    for f in --append-system-prompt-file --name --permission-mode --settings \
+             --effort --mcp-config --strict-mcp-config; do
+      if claude_supports -- "$f"; then
+        printf '  yes  %s\n' "$f"
+      else
+        printf '  no   %s (omitted from the spawn command)\n' "$f"
+      fi
+    done
+    claude_supports -- '--name' || \
+      printf '  note: without --name, `%s status` cannot tell which agent is which; the\n        AGENT-STATE column reports "unknown".\n' "$PROG"
+  fi
+
+  printf '\nrole files:\n'
+  local role missing
+  for role in $roles; do
+    missing=""
+    [ -f "$INSTALL_DIR/prompts/$role.md" ] || missing="$missing prompt"
+    if [ -f "$INSTALL_DIR/settings/role-$role.json" ]; then
+      command -v jq >/dev/null 2>&1 && \
+        { jq -e . "$INSTALL_DIR/settings/role-$role.json" >/dev/null 2>&1 || missing="$missing settings(invalid-json)"; }
+    else
+      missing="$missing settings"
+    fi
+    if [ -z "$missing" ]; then
+      printf '  ok   %s\n' "$role"
+    else
+      printf '  FAIL %s -%s (run %s/build-prompts.sh)\n' "$role" "$missing" "$INSTALL_DIR"
+      problems=$((problems + 1))
+    fi
+  done
+
+  if [ -n "$bin" ] && [ -f "$INSTALL_DIR/prompts/conductor.md" ]; then
+    printf '\nthe command a conductor pane runs (paste it to test by hand):\n\n'
+    printf '  %s\n' "$(build_agent_cmd conductor "$(role_default_model conductor)" \
+      "$(role_default_effort conductor)" "" "0" conductor 2>/dev/null)"
+  fi
+
+  printf '\n'
+  if [ "$problems" = "0" ]; then
+    printf 'No problems found.\n'
+    return 0
+  fi
+  printf '%s problem(s) found.\n' "$problems"
+  return 1
+}
+
 log_mtime() {
   local f="$1"
   [ -f "$f" ] || { now_epoch; return; }
@@ -885,6 +1097,7 @@ $PROG $PIPELINE_VERSION - Agent Orchestrator Pipeline coordination CLI
   report                                                 session timeline
   watch   [--deadline <sec>] [--once]                    idle watchdog
   attach                                                 attach to the tmux session
+  doctor                                                 diagnose the install and environment
   version
 
 All commands accept --session <name>; inside a pane it is read from
@@ -909,6 +1122,7 @@ case "$cmd" in
   report)  cmd_report "$@" ;;
   watch)   cmd_watch "$@" ;;
   attach)  cmd_attach "$@" ;;
+  doctor)  cmd_doctor "$@" ;;
   version|--version|-v) printf '%s %s\n' "$PROG" "$PIPELINE_VERSION" ;;
   help|--help|-h) usage ;;
   *) die "unknown command '$cmd' (try: $PROG help)" ;;
