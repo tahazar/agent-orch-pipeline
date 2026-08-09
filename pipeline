@@ -99,6 +99,19 @@ resolve_install_dir() {
 
 INSTALL_DIR="$(resolve_install_dir)"
 
+# The PATH agent panes get. Agents coordinate by shelling out to `pipeline`, so
+# a pane that cannot resolve it has no message channel at all - and that failure
+# is near-silent, since the agent simply reports the command was not found.
+# Panes otherwise inherit whatever PATH the launching shell had, which is not
+# something to rely on: a second terminal, a login vs non-login shell, or an
+# already-running tmux server can each differ.
+pane_path() {
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) printf '%s' "$PATH" ;;
+    *) printf '%s:%s' "$INSTALL_DIR" "$PATH" ;;
+  esac
+}
+
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 
 # tmux >= 3.2. Version strings look like "tmux 3.2a" or "tmux next-3.4".
@@ -378,6 +391,11 @@ spawn_pane() {
   local alias="$1" role="$2" model="$3" effort="$4" mcp="$5" strict="$6"
   local cmd pane
   cmd="$(build_agent_cmd "$role" "$model" "$effort" "$mcp" "$strict" "$alias")" || return 1
+
+  # PATH has to be set on the command, not via tmux -e: tmux honours -e for
+  # ordinary variables but takes PATH from the server's own environment, so
+  # `-e PATH=...` is silently ignored. Verified against tmux directly.
+  cmd="PATH=$(shq "$(pane_path)") $cmd"
 
   pane="$(tmux split-window -t "$SESSION" -c "$PWD" -P -F '#{pane_id}' \
     -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
@@ -976,6 +994,16 @@ cmd_doctor() {
     claude_supports -- '--name' || \
       printf '  note: without --name, `%s status` cannot tell which agent is which; the\n        AGENT-STATE column reports "unknown".\n' "$PROG"
   fi
+
+  printf '\nagent panes:\n'
+  if command -v pipeline >/dev/null 2>&1; then
+    printf '  ok   `pipeline` is on this shell'"'"'s PATH (%s)\n' "$(command -v pipeline)"
+  else
+    printf '  note `pipeline` is NOT on this shell'"'"'s PATH - add %s or ~/.local/bin to it\n' "$INSTALL_DIR"
+  fi
+  printf '  ok   panes get PATH=%s\n' "$(pane_path)"
+  printf '       (agents shell out to `pipeline`, so this is set on the pane command;\n'
+  printf '        tmux ignores -e PATH=, taking PATH from the server environment)\n'
 
   printf '\nrole files:\n'
   local role missing

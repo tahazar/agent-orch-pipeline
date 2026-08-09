@@ -201,6 +201,35 @@ tmux has-session -t "$DEAD_SESSION" 2>/dev/null
 [ ! -d "$DEAD_STATE" ]; check $? "removes the state directory too"
 rm -f "$FAIL_AGENT" "$SECOND_AGENT"
 
+# --- panes can reach the pipeline CLI -------------------------------------
+# Agents coordinate ONLY by shelling out to `pipeline`. A pane that cannot
+# resolve it has no message channel at all, and the failure is near-silent.
+# Panes otherwise inherit the launching shell's PATH, which is not dependable:
+# a second terminal, a login vs non-login shell, or an already-running tmux
+# server can each differ. Note tmux ignores `-e PATH=` (it honours -e for other
+# variables), so this has to be set on the pane command itself.
+printf '\npane PATH:\n'
+PROBE="$(mktemp "/tmp/pipeline-probe.XXXXXX")"
+PROBE_OUT="$(mktemp "/tmp/pipeline-probe-out.XXXXXX")"
+cat > "$PROBE" <<EOF
+#!/bin/bash
+{ command -v pipeline || echo "PIPELINE-NOT-FOUND"; } > "$PROBE_OUT"
+while IFS= read -r l; do :; done
+EOF
+chmod +x "$PROBE"
+
+PATH_SESSION="pipeline-pathtest-$$"
+# Deliberately launch with a PATH that cannot see the pipeline CLI.
+env PATH=/usr/bin:/bin PIPELINE_AGENT_CMD="$PROBE" "$PIPELINE" start \
+  --session "$PATH_SESSION" --agents "conductor" >/dev/null 2>&1
+sleep 2
+grep -q 'PIPELINE-NOT-FOUND' "$PROBE_OUT" 2>/dev/null
+[ $? != 0 ]; check $? "a pane resolves 'pipeline' even when the launching shell cannot"
+grep -q '/pipeline$' "$PROBE_OUT" 2>/dev/null
+check $? "and it resolves to the real CLI"
+tmux kill-session -t "$PATH_SESSION" 2>/dev/null
+rm -rf "/tmp/pipeline-$PATH_SESSION" "$PROBE" "$PROBE_OUT"
+
 # --- doctor ---------------------------------------------------------------
 printf '\ndoctor:\n'
 "$PIPELINE" doctor >/dev/null 2>&1

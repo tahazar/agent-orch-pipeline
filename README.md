@@ -267,6 +267,28 @@ pipeline logs | tail -20
 pipeline report                # dropped signals, dead letters, violations
 ```
 
+### `pipeline: command not found` in another terminal
+
+`install.sh` symlinks `pipeline` into `~/.local/bin`, but a *different* terminal
+only sees it if that directory is on that shell's `PATH`. Persist it where an
+interactive zsh will read it:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
+```
+
+`~/.zprofile` is read by login shells only, so a terminal that opens a
+non-login shell will miss it — `~/.zshrc` covers both. Check with:
+
+```bash
+grep -n 'local/bin' ~/.zshrc ~/.zprofile ~/.zshenv 2>/dev/null
+```
+
+Your running session is unaffected: agent panes get the CLI's directory on
+their `PATH` explicitly, so agents can always shell out to `pipeline`
+regardless of where the session was launched from. `pipeline doctor` reports
+both, under "agent panes".
+
 ### An agent exits immediately / "no server running"
 
 ```
