@@ -1,0 +1,45 @@
+{
+  "_comment": "Rendered to settings/role-builder.json by build-prompts.sh. Impl makes failing tests pass and NEVER modifies tests or contracts - if a test looks wrong it signals BLOCKED reason=\"test dispute: ...\". Denying the test paths here means a drifting builder agent cannot quietly rewrite the suite that is judging it.",
+  "permissions": {
+    "allow": [
+      "Bash(pipeline:*)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+      "Bash(git rev-parse:*)", "Bash(git add:*)", "Bash(git commit:*)",
+      "Bash(npm test:*)", "Bash(npm run:*)", "Bash(pytest:*)", "Bash(make:*)",
+      "Bash(cargo test:*)", "Bash(go test:*)",
+      "Read", "Glob", "Grep"
+    ],
+    "deny": [
+      "Bash(git push:*)", "Bash(gh:*)", "Bash(git merge:*)", "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Edit(**/test/**)", "Write(**/test/**)",
+      "Edit(**/tests/**)", "Write(**/tests/**)",
+      "Edit(**/__tests__/**)", "Write(**/__tests__/**)",
+      "Edit(**/*.test.*)", "Write(**/*.test.*)",
+      "Edit(**/*.spec.*)", "Write(**/*.spec.*)",
+      "Edit(**/*_test.*)", "Write(**/*_test.*)",
+      "Edit(**/test_*.py)", "Write(**/test_*.py)",
+      "Edit(**/contracts.*)", "Write(**/contracts.*)",
+      "Edit(**/types/contracts*)", "Write(**/types/contracts*)",
+      "Edit(**/CLAUDE.md)", "Write(**/CLAUDE.md)",
+      "Edit(**/AGENTS.md)", "Write(**/AGENTS.md)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh running" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh running" }] }
+    ],
+    "Notification": [
+      { "hooks": [
+        { "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh waiting" },
+        { "type": "command", "command": "@@INSTALL_DIR@@/hooks/notify-developer.sh" }
+      ] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh done" }] }
+    ]
+  }
+}

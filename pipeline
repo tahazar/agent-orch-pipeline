@@ -1,0 +1,915 @@
+#!/bin/bash
+# pipeline - Agent Orchestrator Pipeline coordination CLI
+#
+# Wraps tmux to run a serial multi-agent development pipeline of Claude Code
+# sessions. One pane per agent; agents address each other by alias and talk
+# exclusively through `pipeline tell`.
+#
+# Portability: must run under macOS stock /bin/bash 3.2.
+#   - no associative arrays, no mapfile/readarray, no ${var,,}
+#   - no `readlink -f`, no GNU `sed -i`
+# Dependencies: tmux >= 3.2, jq.
+
+set -u
+
+PIPELINE_VERSION="1.0.0"
+
+# ---------------------------------------------------------------------------
+# Spawn spec - the single source of truth for per-role model/effort/mcp.
+# `pipeline status` and cost-report.md treat these as authoritative.
+# ---------------------------------------------------------------------------
+
+role_default_model() {
+  case "$1" in
+    conductor|arbiter|foreman|prover) echo "opus" ;;
+    inspector|builder)          echo "sonnet" ;;
+    *)                              echo "" ;;
+  esac
+}
+
+# Empty effort means "inherit the session default". arbiter reviews
+# adversarially and is idle between gates, so it gets the heaviest setting.
+role_default_effort() {
+  case "$1" in
+    arbiter) echo "xhigh" ;;
+    *)         echo "" ;;
+  esac
+}
+
+# Default MCP config per role. Empty means none. Set a path here (or pass
+# --mcp-config at spawn time) to give a role extra tool capabilities.
+role_default_mcp() {
+  case "$1" in
+    *) echo "" ;;
+  esac
+}
+
+role_is_known() {
+  case "$1" in
+    conductor|arbiter|foreman|prover|inspector|builder) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Tunables
+# ---------------------------------------------------------------------------
+
+# Pause between typing a message and pressing Enter. Claude Code's input
+# handler can drop the submit if they arrive in the same event loop tick.
+: "${PIPELINE_SEND_DELAY:=0.4}"
+# Seconds to wait for typed text to appear in the pane before calling it lost.
+: "${PIPELINE_VERIFY_TIMEOUT:=3}"
+# Default --expect-ack timeout, seconds.
+: "${PIPELINE_ACK_TIMEOUT:=120}"
+# Idle seconds after which `pipeline watch` considers the session stalled.
+: "${PIPELINE_IDLE_DEADLINE:=900}"
+
+# ---------------------------------------------------------------------------
+# Basics
+# ---------------------------------------------------------------------------
+
+PROG="$(basename "$0")"
+NL='
+'
+
+die()  { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+
+now_iso()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
+now_epoch() { date -u +%s; }
+
+# POSIX single-quote shell escaping.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# Resolve the directory this script lives in, following symlinks, without
+# `readlink -f` (absent on macOS).
+resolve_install_dir() {
+  local src="$0" dir
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in
+      /*) ;;
+      *) src="$dir/$src" ;;
+    esac
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+
+INSTALL_DIR="$(resolve_install_dir)"
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
+
+# tmux >= 3.2. Version strings look like "tmux 3.2a" or "tmux next-3.4".
+check_tmux_version() {
+  require_cmd tmux
+  local raw major minor
+  raw="$(tmux -V 2>/dev/null | sed -e 's/^tmux //' -e 's/^next-//')"
+  major="$(printf '%s' "$raw" | sed -e 's/[^0-9.].*$//' -e 's/\..*$//')"
+  minor="$(printf '%s' "$raw" | sed -e 's/[^0-9.].*$//' -e 's/^[0-9]*\.//' -e 's/^$/0/')"
+  [ -n "$major" ] || die "cannot parse tmux version from '$raw'"
+  if [ "$major" -gt 3 ] 2>/dev/null; then return 0; fi
+  if [ "$major" -eq 3 ] && [ "$minor" -ge 2 ] 2>/dev/null; then return 0; fi
+  die "tmux >= 3.2 required (found $raw)"
+}
+
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+
+SESSION=""
+STATE_DIR=""
+
+state_dir_for() { printf '/tmp/pipeline-%s' "$1"; }
+
+# Resolve the session from --session, $PIPELINE_SESSION (exported into every
+# pane), or a single running session.
+resolve_session() {
+  local want="${1:-}"
+  if [ -n "$want" ]; then
+    SESSION="$want"
+  elif [ -n "${PIPELINE_SESSION:-}" ]; then
+    SESSION="$PIPELINE_SESSION"
+  else
+    local found count
+    found="$(ls -d /tmp/pipeline-* 2>/dev/null || true)"
+    [ -n "$found" ] || die "no pipeline session found; pass --session <name>"
+    count="$(printf '%s\n' "$found" | grep -c .)"
+    [ "$count" -eq 1 ] || die "multiple pipeline sessions found; pass --session <name>"
+    SESSION="$(basename "$found" | sed 's/^pipeline-//')"
+  fi
+  STATE_DIR="$(state_dir_for "$SESSION")"
+}
+
+require_state() {
+  [ -d "$STATE_DIR" ] || die "no state dir at $STATE_DIR (is session '$SESSION' started?)"
+}
+
+registry_file()  { printf '%s/registry.json' "$STATE_DIR"; }
+messages_log()   { printf '%s/messages.log' "$STATE_DIR"; }
+events_log()     { printf '%s/events.jsonl' "$STATE_DIR"; }
+deadletter_log() { printf '%s/dead-letter.log' "$STATE_DIR"; }
+token_file()     { printf '%s/token' "$STATE_DIR"; }
+seq_file()       { printf '%s/msg-seq' "$STATE_DIR"; }
+
+# Atomic JSON write: temp -> mv. A half-written registry is worse than none,
+# and every agent reads it on every message.
+registry_write() {
+  local tmp
+  tmp="$(mktemp "${STATE_DIR}/registry.XXXXXX")" || die "mktemp failed"
+  cat > "$tmp" || { rm -f "$tmp"; die "registry write failed"; }
+  mv "$tmp" "$(registry_file)" || { rm -f "$tmp"; die "registry rename failed"; }
+}
+
+registry_update() {
+  local filter="$1"; shift
+  local out
+  out="$(jq "$@" "$filter" "$(registry_file)")" || die "registry update failed"
+  printf '%s\n' "$out" | registry_write
+}
+
+# emit_event <kind> [json-object]
+# Everything that happens on the channel lands in events.jsonl; `pipeline
+# report` reconstructs the session from it.
+emit_event() {
+  local kind="$1" extra="${2:-{\}}"
+  [ -n "$STATE_DIR" ] || return 0
+  jq -c -n \
+    --arg ts "$(now_iso)" \
+    --arg kind "$kind" \
+    --arg session "$SESSION" \
+    --arg actor "${PIPELINE_ALIAS:-developer}" \
+    --argjson extra "$extra" \
+    '{ts:$ts, kind:$kind, session:$session, actor:$actor} + $extra' \
+    >> "$(events_log)" 2>/dev/null || true
+}
+
+next_msg_id() {
+  local n
+  n="$(cat "$(seq_file)" 2>/dev/null || echo 0)"
+  n=$((n + 1))
+  printf '%s' "$n" > "$(seq_file)"
+  printf '%s' "$n"
+}
+
+# ---------------------------------------------------------------------------
+# Agent registry helpers
+# ---------------------------------------------------------------------------
+
+agent_field() {
+  jq -r --arg a "$1" --arg f "$2" '.agents[$a][$f] // empty' "$(registry_file)" 2>/dev/null
+}
+
+agent_exists() {
+  [ -n "$(jq -r --arg a "$1" '.agents[$a] // empty | type' "$(registry_file)" 2>/dev/null)" ]
+}
+
+pane_alive() {
+  [ -n "$1" ] || return 1
+  tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qx -- "$1"
+}
+
+# ---------------------------------------------------------------------------
+# Pane command construction
+# ---------------------------------------------------------------------------
+
+# Probe once whether this claude build supports --append-system-prompt-file.
+# The file form avoids argv size limits on large prompts; the inline form is
+# the documented one.
+append_prompt_flag() {
+  local cache="$STATE_DIR/.append-prompt-flag"
+  if [ -f "$cache" ]; then cat "$cache"; return; fi
+  local flag="inline"
+  if claude --help 2>&1 | grep -q -- '--append-system-prompt-file'; then flag="file"; fi
+  printf '%s' "$flag" > "$cache" 2>/dev/null || true
+  printf '%s' "$flag"
+}
+
+# Build the shell command a pane runs, as a single string for tmux.
+build_agent_cmd() {
+  local role="$1" model="$2" effort="$3" mcp="$4" strict_mcp="$5" alias="$6"
+
+  # Test seam: smoke tests replace the agent with a scripted stub. Never used
+  # in a real run.
+  if [ -n "${PIPELINE_AGENT_CMD:-}" ]; then
+    printf '%s %s' "$PIPELINE_AGENT_CMD" "$role"
+    return
+  fi
+
+  local prompt_file="$INSTALL_DIR/prompts/$role.md"
+  [ -f "$prompt_file" ] || die "missing prompt for role '$role' at $prompt_file (run build-prompts.sh)"
+
+  local settings_file="$INSTALL_DIR/settings/role-$role.json"
+  local cmd="claude"
+
+  if [ "$(append_prompt_flag)" = "file" ]; then
+    cmd="$cmd --append-system-prompt-file $(shq "$prompt_file")"
+  else
+    cmd="$cmd --append-system-prompt \"\$(cat $(shq "$prompt_file"))\""
+  fi
+
+  # --name is the join key that lets `pipeline status` tell whether THIS
+  # agent is alive, rather than guessing from the working directory.
+  cmd="$cmd --name $(shq "$alias")"
+  cmd="$cmd --model $(shq "$model") --permission-mode acceptEdits"
+  [ -f "$settings_file" ] && cmd="$cmd --settings $(shq "$settings_file")"
+  [ -n "$effort" ] && cmd="$cmd --effort $(shq "$effort")"
+  if [ -n "$mcp" ]; then
+    cmd="$cmd --mcp-config $(shq "$mcp")"
+    [ "$strict_mcp" = "1" ] && cmd="$cmd --strict-mcp-config"
+  fi
+  printf '%s' "$cmd"
+}
+
+# ---------------------------------------------------------------------------
+# Spawning
+# ---------------------------------------------------------------------------
+
+SPEC_ROLE=""; SPEC_MODEL=""; SPEC_ALIAS=""; SPEC_EFFORT=""; SPEC_MCP=""; SPEC_STRICT_MCP="0"
+
+# Parse "role[:model[:alias]]", filling in per-role defaults.
+parse_agent_spec() {
+  local spec="$1"
+  SPEC_ROLE="$(printf '%s' "$spec" | cut -d: -f1)"
+  SPEC_MODEL="$(printf '%s' "$spec" | cut -d: -f2 -s)"
+  SPEC_ALIAS="$(printf '%s' "$spec" | cut -d: -f3 -s)"
+
+  [ -n "$SPEC_ROLE" ] || die "empty role in agent spec '$spec'"
+  role_is_known "$SPEC_ROLE" || warn "unknown role '$SPEC_ROLE' (proceeding; check for a typo)"
+
+  [ -n "$SPEC_MODEL" ] || SPEC_MODEL="$(role_default_model "$SPEC_ROLE")"
+  [ -n "$SPEC_MODEL" ] || die "no model for role '$SPEC_ROLE'; specify role:model:alias"
+  [ -n "$SPEC_ALIAS" ] || SPEC_ALIAS="$SPEC_ROLE"
+  [ -n "$SPEC_EFFORT" ] || SPEC_EFFORT="$(role_default_effort "$SPEC_ROLE")"
+  [ -n "$SPEC_MCP" ] || SPEC_MCP="$(role_default_mcp "$SPEC_ROLE")"
+}
+
+register_agent() {
+  registry_update '.agents[$a] = {
+      role: $role, model: $model, effort: $effort, mcp: $mcp,
+      pane: $pane, status: "alive", started: $ts
+    }' \
+    --arg a "$1" --arg role "$2" --arg model "$3" \
+    --arg effort "$4" --arg mcp "$5" --arg pane "$6" --arg ts "$(now_iso)"
+}
+
+# Create a pane running an agent. Environment is injected with -e so the agent
+# knows its own address and the hooks know which pane to recolor.
+spawn_pane() {
+  local alias="$1" role="$2" model="$3" effort="$4" mcp="$5" strict="$6" first="$7"
+  local cmd pane
+  cmd="$(build_agent_cmd "$role" "$model" "$effort" "$mcp" "$strict" "$alias")" || exit 1
+
+  if [ "$first" = "1" ]; then
+    tmux new-session -d -s "$SESSION" -c "$PWD" \
+      -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
+      "$cmd" || die "failed to create tmux session '$SESSION'"
+    pane="$(tmux list-panes -t "$SESSION" -F '#{pane_id}' | head -1)"
+  else
+    pane="$(tmux split-window -t "$SESSION" -c "$PWD" -P -F '#{pane_id}' \
+      -e "PIPELINE_SESSION=$SESSION" -e "PIPELINE_ALIAS=$alias" -e "PIPELINE_DIR=$STATE_DIR" \
+      "$cmd")" || die "failed to spawn pane for '$alias'"
+    tmux select-layout -t "$SESSION" tiled >/dev/null 2>&1 || true
+  fi
+
+  tmux select-pane -t "$pane" -T "$alias" >/dev/null 2>&1 || true
+  register_agent "$alias" "$role" "$model" "$effort" "$mcp" "$pane"
+  emit_event "spawn" "$(jq -n --arg a "$alias" --arg r "$role" --arg m "$model" \
+    --arg p "$pane" '{alias:$a, role:$r, model:$m, pane:$p}')"
+  printf '%s' "$pane"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: start
+# ---------------------------------------------------------------------------
+
+cmd_start() {
+  local session="" agents="conductor,arbiter"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --agents)  agents="${2:-}"; shift 2 ;;
+      -h|--help) usage_start; exit 0 ;;
+      *) die "start: unknown argument '$1'" ;;
+    esac
+  done
+  [ -n "$session" ] || die "start: --session <name> is required"
+
+  check_tmux_version
+  require_cmd jq
+
+  SESSION="$session"
+  STATE_DIR="$(state_dir_for "$SESSION")"
+
+  tmux has-session -t "$SESSION" 2>/dev/null && \
+    die "tmux session '$SESSION' already exists (attach with: $PROG attach --session $SESSION)"
+
+  mkdir -p "$STATE_DIR/inbox" "$STATE_DIR/acks" || die "cannot create $STATE_DIR"
+  : > "$(messages_log)"
+  : > "$(events_log)"
+  : > "$(deadletter_log)"
+  printf '0' > "$(seq_file)"
+
+  # Per-session channel token. Signals count only when they arrive over the
+  # channel carrying this token, so signal-shaped text in a design doc, a diff,
+  # or tool output cannot drive the pipeline.
+  local token
+  token="$( (head -c 24 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n') || true)"
+  [ -n "$token" ] || token="t$(now_epoch)$$"
+  printf '%s' "$token" > "$(token_file)"
+  chmod 600 "$(token_file)" 2>/dev/null || true
+
+  jq -n --arg s "$SESSION" --arg ts "$(now_iso)" --arg cwd "$PWD" \
+    '{session:$s, created:$ts, cwd:$cwd, agents:{}}' | registry_write
+
+  local first=1 spec oldifs="$IFS"
+  IFS=','
+  for spec in $agents; do
+    IFS="$oldifs"
+    spec="$(printf '%s' "$spec" | sed -e 's/^ *//' -e 's/ *$//')"
+    if [ -n "$spec" ]; then
+      SPEC_EFFORT=""; SPEC_MCP=""; SPEC_STRICT_MCP="0"
+      parse_agent_spec "$spec"
+      spawn_pane "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL" "$SPEC_EFFORT" \
+                 "$SPEC_MCP" "$SPEC_STRICT_MCP" "$first" >/dev/null
+      printf 'Spawned %s (%s, %s)\n' "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL"
+      first=0
+    fi
+    IFS=','
+  done
+  IFS="$oldifs"
+
+  # Let agent notifications reach the outer terminal. Agent-aware terminals ring
+  # a pane and light up its tab on an OSC 9 sequence, but tmux drops OSC it does
+  # not recognise; the notify hook wraps it for passthrough, which needs this.
+  tmux set-option -t "$SESSION" allow-passthrough on >/dev/null 2>&1 || true
+
+  printf '\nSession "%s" started. State: %s\n' "$SESSION" "$STATE_DIR"
+  printf 'Attach with: %s attach --session %s\n' "$PROG" "$SESSION"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: spawn
+# ---------------------------------------------------------------------------
+
+cmd_spawn() {
+  local session="" spec="" effort="" mcp="" strict="0"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --effort)  effort="${2:-}"; shift 2 ;;
+      --mcp-config) mcp="${2:-}"; shift 2 ;;
+      --strict-mcp-config) strict="1"; shift ;;
+      -h|--help) usage_spawn; exit 0 ;;
+      -*) die "spawn: unknown flag '$1'" ;;
+      *) spec="$1"; shift ;;
+    esac
+  done
+  [ -n "$spec" ] || die "spawn: <role>[:<model>][:<alias>] is required"
+
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+
+  SPEC_EFFORT="$effort"; SPEC_MCP="$mcp"; SPEC_STRICT_MCP="$strict"
+  parse_agent_spec "$spec"
+
+  if agent_exists "$SPEC_ALIAS" && [ "$(agent_field "$SPEC_ALIAS" status)" = "alive" ]; then
+    if pane_alive "$(agent_field "$SPEC_ALIAS" pane)"; then
+      die "alias '$SPEC_ALIAS' is already alive; kill it first"
+    fi
+  fi
+
+  spawn_pane "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL" "$SPEC_EFFORT" \
+             "$SPEC_MCP" "$SPEC_STRICT_MCP" 0 >/dev/null
+  printf 'Spawned %s (%s, %s)\n' "$SPEC_ALIAS" "$SPEC_ROLE" "$SPEC_MODEL"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: tell   -- the reliability-critical path
+# ---------------------------------------------------------------------------
+
+dead_letter() {
+  local alias="$1" reason="$2" text="$3"
+  printf '%s\t%s\t%s\t%s\n' "$(now_iso)" "$alias" "$reason" "$text" >> "$(deadletter_log)"
+  emit_event "dead_letter" "$(jq -n --arg a "$alias" --arg r "$reason" '{alias:$a, reason:$r}')"
+}
+
+# A pane showing a permission prompt or other modal swallows keystrokes: the
+# message meant to unblock the agent gets consumed answering the dialog.
+# Refuse rather than type into it.
+pane_has_modal() {
+  local tail
+  tail="$(tmux capture-pane -p -t "$1" -S -25 2>/dev/null)" || return 1
+  printf '%s' "$tail" | grep -qE \
+    'Do you want to (proceed|allow|create)|Yes, and (do not|don.t) ask again|Do you trust the files|❯[[:space:]]*1\.[[:space:]]*Yes|No, and tell Claude what to do'
+}
+
+# Clear whatever is sitting in the input box before retyping, so a retry can
+# never concatenate onto a partial first attempt.
+clear_input() {
+  tmux send-keys -t "$1" C-u 2>/dev/null || true
+}
+
+pane_contains() {
+  local pane="$1" needle="$2" waited=0
+  while [ "$waited" -lt "$PIPELINE_VERIFY_TIMEOUT" ]; do
+    if tmux capture-pane -p -t "$pane" -S -15 2>/dev/null | grep -qF -- "$needle"; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+cmd_tell() {
+  local session="" alias="" text="" expect_ack="0" ack_timeout="$PIPELINE_ACK_TIMEOUT"
+  local have_text="0"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --expect-ack) expect_ack="1"; shift ;;
+      --ack-timeout) ack_timeout="${2:-}"; shift 2 ;;
+      -h|--help) usage_tell; exit 0 ;;
+      --) shift ;;
+      -*) die "tell: unknown flag '$1'" ;;
+      *)
+        if [ -z "$alias" ]; then alias="$1"; else text="$1"; have_text="1"; fi
+        shift ;;
+    esac
+  done
+  [ -n "$alias" ] || die "tell: <alias> is required"
+  [ "$have_text" = "1" ] || die "tell: <message> is required"
+
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+
+  # 1. Route. An unroutable message is dead-lettered, never silently dropped.
+  if ! agent_exists "$alias"; then
+    dead_letter "$alias" "unknown-alias" "$text"
+    die "no agent registered as '$alias' (dead-lettered)"
+  fi
+  local pane
+  pane="$(agent_field "$alias" pane)"
+  if ! pane_alive "$pane"; then
+    registry_update '.agents[$a].status = "dead"' --arg a "$alias"
+    dead_letter "$alias" "pane-dead" "$text"
+    die "pane for '$alias' is dead (dead-lettered); respawn with: $PROG spawn <role>::$alias"
+  fi
+
+  # 2. Sanitize. A leading / ! or # is a slash command, bash mode, or a memory
+  # write - not a message. Strip control characters (keep tab and newline).
+  local body
+  body="$(printf '%s' "$text" | tr -d '\000-\010\013-\037\177')"
+  case "$body" in
+    /*|!*|\#*) body=" $body" ;;
+  esac
+
+  # 3. Stamp identity: message id + channel token.
+  local msg_id token
+  msg_id="$(next_msg_id)"
+  token="$(cat "$(token_file)" 2>/dev/null || echo "notoken")"
+
+  # 4. Multi-line messages spill to a file. The delivered line points at it and
+  # still carries the signal last, so the one-signal-per-message rule holds.
+  local line
+  case "$body" in
+    *"$NL"*)
+      local inbox_file signal_line
+      inbox_file="$STATE_DIR/inbox/${alias}-${msg_id}.md"
+      printf '%s\n' "$body" > "$inbox_file"
+      signal_line="$(printf '%s\n' "$body" | grep -o '\[SIGNAL:[^]]*\]' | tail -1)"
+      line="[PIPELINE:$token msg=$msg_id] Full message written to $inbox_file - read it in full before acting."
+      [ -n "$signal_line" ] && line="$line $signal_line"
+      ;;
+    *)
+      line="[PIPELINE:$token msg=$msg_id] $body"
+      ;;
+  esac
+
+  # 5. Refuse to type into a modal.
+  if pane_has_modal "$pane"; then
+    dead_letter "$alias" "pane-blocked-modal" "$body"
+    printf '%s: pane for %s is showing a dialog; message NOT sent (dead-lettered).\n' \
+      "$PROG" "$alias" >&2
+    printf '%s: clear the prompt in that pane, then resend.\n' "$PROG" >&2
+    exit 3
+  fi
+
+  # 6-7. Send, then verify it actually landed before claiming success. The
+  # confirmation line below is what the dropped-signal rule keys on, so it may
+  # only print when the text is provably in the pane.
+  local attempt=1 delivered=0
+  while [ "$attempt" -le 2 ]; do
+    [ "$attempt" -gt 1 ] && clear_input "$pane"
+    tmux send-keys -t "$pane" -l -- "$line" 2>/dev/null || true
+    sleep "$PIPELINE_SEND_DELAY"
+    if pane_contains "$pane" "msg=$msg_id"; then
+      tmux send-keys -t "$pane" Enter 2>/dev/null || true
+      delivered=1
+      break
+    fi
+    warn "send attempt $attempt to '$alias' did not land; retrying"
+    attempt=$((attempt + 1))
+  done
+
+  if [ "$delivered" != "1" ]; then
+    dead_letter "$alias" "not-delivered" "$body"
+    printf '%s: FAILED to deliver to %s - text never appeared in the pane (dead-lettered).\n' \
+      "$PROG" "$alias" >&2
+    exit 4
+  fi
+
+  printf '%s\t%s -> %s\t%s\n' "$(now_iso)" "${PIPELINE_ALIAS:-developer}" "$alias" \
+    "$(printf '%s' "$body" | tr '\n' ' ')" >> "$(messages_log)"
+  emit_event "tell" "$(jq -n --arg a "$alias" --arg id "$msg_id" \
+    --arg sig "$(printf '%s' "$body" | grep -o '\[SIGNAL:[^]]*\]' | tail -1)" \
+    '{alias:$a, msg_id:$id, signal:$sig}')"
+
+  printf 'Message sent to %s (msg=%s)\n' "$alias" "$msg_id"
+
+  # 8. Optional at-least-once delivery. Receivers ack by msg_id and dedupe on
+  # it, so resending is safe.
+  if [ "$expect_ack" = "1" ]; then
+    local waited=0
+    while [ "$waited" -lt "$ack_timeout" ]; do
+      if [ -f "$STATE_DIR/acks/$msg_id" ]; then
+        printf 'Ack received from %s (msg=%s)\n' "$alias" "$msg_id"
+        return 0
+      fi
+      sleep 2
+      waited=$((waited + 2))
+    done
+    emit_event "ack_timeout" "$(jq -n --arg a "$alias" --arg id "$msg_id" \
+      '{alias:$a, msg_id:$id}')"
+    warn "no ack from '$alias' for msg=$msg_id after ${ack_timeout}s"
+    return 5
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# cmd: ack
+# ---------------------------------------------------------------------------
+
+cmd_ack() {
+  local session="" msg_id=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s ack <msg_id>\n' "$PROG"; exit 0 ;;
+      *) msg_id="$1"; shift ;;
+    esac
+  done
+  [ -n "$msg_id" ] || die "ack: <msg_id> is required"
+  resolve_session "$session"
+  require_state
+  printf '%s\n' "$(now_iso)" > "$STATE_DIR/acks/$msg_id"
+  emit_event "ack" "$(jq -n --arg id "$msg_id" '{msg_id:$id}')"
+  printf 'Acked msg=%s\n' "$msg_id"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: kill
+# ---------------------------------------------------------------------------
+
+cmd_kill() {
+  local session="" alias=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s kill <alias>\n' "$PROG"; exit 0 ;;
+      *) alias="$1"; shift ;;
+    esac
+  done
+  [ -n "$alias" ] || die "kill: <alias> is required"
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+  agent_exists "$alias" || die "no agent registered as '$alias'"
+
+  local pane
+  pane="$(agent_field "$alias" pane)"
+  if pane_alive "$pane"; then
+    tmux kill-pane -t "$pane" 2>/dev/null || true
+    tmux select-layout -t "$SESSION" tiled >/dev/null 2>&1 || true
+  fi
+  registry_update '.agents[$a].status = "dead" | .agents[$a].killed = $ts' \
+    --arg a "$alias" --arg ts "$(now_iso)"
+  emit_event "kill" "$(jq -n --arg a "$alias" '{alias:$a}')"
+  printf 'Killed %s\n' "$alias"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: status
+# ---------------------------------------------------------------------------
+
+# Pane alive is not the same as agent alive: a wedged Claude session leaves the
+# pane up. Agents are spawned with `claude --name <alias>`, so the alias is the
+# join key here - never a cwd guess, which would report every alias alive as
+# soon as any one session was running.
+claude_sessions_json() {
+  command -v claude >/dev/null 2>&1 || { echo ""; return; }
+  claude agents --json 2>/dev/null || echo ""
+}
+
+cmd_status() {
+  local session=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s status [--session <name>]\n' "$PROG"; exit 0 ;;
+      *) die "status: unknown argument '$1'" ;;
+    esac
+  done
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+
+  local sessions_json
+  sessions_json="$(claude_sessions_json)"
+
+  printf '%-14s %-13s %-8s %-7s %-7s %-11s %s\n' \
+    ALIAS ROLE MODEL EFFORT PANE PANE-STATE AGENT-STATE
+  local alias
+  for alias in $(jq -r '.agents | keys[]' "$(registry_file)" 2>/dev/null); do
+    local role model effort pane pane_state agent_state
+    role="$(agent_field "$alias" role)"
+    model="$(agent_field "$alias" model)"
+    effort="$(agent_field "$alias" effort)"; [ -n "$effort" ] || effort="-"
+    pane="$(agent_field "$alias" pane)"
+
+    if pane_alive "$pane"; then pane_state="alive"; else pane_state="dead"; fi
+
+    if [ "$pane_state" = "dead" ]; then
+      agent_state="-"
+    elif [ -z "$sessions_json" ]; then
+      # `claude agents --json` unavailable (older CLI, or stub panes in tests).
+      # Report honestly rather than guessing.
+      agent_state="unknown"
+    else
+      local hit
+      hit="$(printf '%s' "$sessions_json" | jq -r --arg n "$alias" \
+        '[.[]? | select((.name // "") == $n)] | length' 2>/dev/null || echo "")"
+      if [ -z "$hit" ]; then
+        agent_state="unknown"
+      elif [ "$hit" = "0" ]; then
+        agent_state="WEDGED"
+      else
+        agent_state="alive"
+      fi
+    fi
+
+    printf '%-14s %-13s %-8s %-7s %-7s %-11s %s\n' \
+      "$alias" "$role" "$model" "$effort" "$pane" "$pane_state" "$agent_state"
+  done
+
+  local dl
+  dl="$(grep -c . "$(deadletter_log)" 2>/dev/null || true)"
+  [ -n "$dl" ] || dl=0
+  if [ "$dl" != "0" ]; then
+    printf '\n%s dead-lettered message(s) - see %s\n' "$dl" "$(deadletter_log)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# cmd: logs / attach / report / watch
+# ---------------------------------------------------------------------------
+
+cmd_logs() {
+  local session="" follow="0"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --follow|-f) follow="1"; shift ;;
+      -h|--help) printf 'usage: %s logs [--follow]\n' "$PROG"; exit 0 ;;
+      *) die "logs: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_session "$session"
+  require_state
+  if [ "$follow" = "1" ]; then tail -f "$(messages_log)"; else cat "$(messages_log)"; fi
+}
+
+cmd_attach() {
+  local session=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s attach [--session <name>]\n' "$PROG"; exit 0 ;;
+      *) die "attach: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_session "$session"
+  tmux has-session -t "$SESSION" 2>/dev/null || die "no tmux session named '$SESSION'"
+
+  # Sessions are created detached, so `pipeline start` works from anywhere -
+  # including from inside another multiplexer. Attaching is the part that
+  # cares: plain `tmux attach` refuses to run inside tmux ("sessions should be
+  # nested with care"). When we are already a tmux client, move that client to
+  # the pipeline session instead of nesting.
+  if [ -n "${TMUX:-}" ]; then
+    if ! tmux switch-client -t "$SESSION" 2>/dev/null; then
+      printf '%s: already inside tmux, and there is no client to switch.\n' "$PROG" >&2
+      printf 'From a terminal outside tmux, run: tmux attach -t %s\n' "$SESSION" >&2
+      exit 1
+    fi
+  else
+    tmux attach -t "$SESSION"
+  fi
+}
+
+cmd_report() {
+  local session=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s report [--session <name>]\n' "$PROG"; exit 0 ;;
+      *) die "report: unknown argument '$1'" ;;
+    esac
+  done
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+
+  printf '=== Session %s ===\n\n' "$SESSION"
+
+  printf 'Events by kind:\n'
+  jq -r '.kind' "$(events_log)" 2>/dev/null | sort | uniq -c | sort -rn | sed 's/^/  /'
+
+  printf '\nSignals in order:\n'
+  local s
+  s="$(jq -r 'select(.kind == "tell" and (.signal // "") != "")
+              | "  \(.ts)  \(.actor) -> \(.alias)  \(.signal)"' "$(events_log)" 2>/dev/null)"
+  if [ -n "$s" ]; then printf '%s\n' "$s"; else printf '  none\n'; fi
+
+  printf '\nProtocol violations:\n'
+  local v
+  v="$(jq -r 'select(.kind == "violation") | "  \(.ts)  \(.actor)  \(.detail // "")"' \
+    "$(events_log)" 2>/dev/null)"
+  if [ -n "$v" ]; then printf '%s\n' "$v"; else printf '  none\n'; fi
+
+  printf '\nDelivery problems:\n'
+  local d
+  d="$(jq -r 'select(.kind == "dead_letter" or .kind == "ack_timeout")
+              | "  \(.ts)  \(.kind)  \(.alias // "-")  \(.reason // "")"' \
+    "$(events_log)" 2>/dev/null)"
+  if [ -n "$d" ]; then printf '%s\n' "$d"; else printf '  none\n'; fi
+}
+
+log_mtime() {
+  local f="$1"
+  [ -f "$f" ] || { now_epoch; return; }
+  stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || now_epoch
+}
+
+# Watchdog: flag a stalled session and tell the developer. Without this, a
+# stopped agent is an indefinite silent wait.
+cmd_watch() {
+  local session="" once="0" deadline="$PIPELINE_IDLE_DEADLINE"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --deadline) deadline="${2:-}"; shift 2 ;;
+      --once) once="1"; shift ;;
+      -h|--help) printf 'usage: %s watch [--deadline <sec>] [--once]\n' "$PROG"; exit 0 ;;
+      *) die "watch: unknown argument '$1'" ;;
+    esac
+  done
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+
+  while :; do
+    local last now age
+    now="$(now_epoch)"
+    last="$(log_mtime "$(messages_log)")"
+    age=$((now - last))
+    if [ "$age" -ge "$deadline" ]; then
+      local msg="No pipeline traffic for ${age}s (deadline ${deadline}s) in session $SESSION"
+      warn "$msg"
+      emit_event "watchdog_stall" "$(jq -n --argjson age "$age" '{idle_seconds:$age}')"
+      if [ -x "$INSTALL_DIR/hooks/notify-developer.sh" ]; then
+        "$INSTALL_DIR/hooks/notify-developer.sh" "$msg" >/dev/null 2>&1 || true
+      fi
+    fi
+    [ "$once" = "1" ] && return 0
+    sleep 60
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+usage_start() {
+  cat <<EOF
+usage: $PROG start --session <name> [--agents "conductor,arbiter"]
+
+Creates a detached tmux session with one pane per agent.
+Each agent entry is <role>[:<model>][:<alias>]; model defaults per role.
+EOF
+}
+
+usage_spawn() {
+  cat <<EOF
+usage: $PROG spawn <role>[:<model>][:<alias>] [--effort <level>]
+                   [--mcp-config <file>] [--strict-mcp-config] [--session <name>]
+
+Adds a pane running that role. The alias is the address used by tell/kill.
+EOF
+}
+
+usage_tell() {
+  cat <<EOF
+usage: $PROG tell <alias> "<message>" [--expect-ack] [--ack-timeout <sec>]
+
+Delivers a message to that agent's prompt and verifies it landed before
+reporting success. Prints "Message sent to <alias> (msg=N)" on success only.
+EOF
+}
+
+usage() {
+  cat <<EOF
+$PROG $PIPELINE_VERSION - Agent Orchestrator Pipeline coordination CLI
+
+  start   --session <name> [--agents "conductor,arbiter"]   create session + panes
+  spawn   <role>[:<model>][:<alias>]                     add an agent pane
+  tell    <alias> "<message>" [--expect-ack]             send a message
+  ack     <msg_id>                                       acknowledge a message
+  kill    <alias>                                        kill an agent pane
+  status                                                 list agents + liveness
+  logs    [--follow]                                     tail the message log
+  report                                                 session timeline
+  watch   [--deadline <sec>] [--once]                    idle watchdog
+  attach                                                 attach to the tmux session
+  version
+
+All commands accept --session <name>; inside a pane it is read from
+\$PIPELINE_SESSION automatically.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+[ $# -gt 0 ] || { usage; exit 1; }
+cmd="$1"; shift
+case "$cmd" in
+  start)   cmd_start "$@" ;;
+  spawn)   cmd_spawn "$@" ;;
+  tell)    cmd_tell "$@" ;;
+  ack)     cmd_ack "$@" ;;
+  kill)    cmd_kill "$@" ;;
+  status)  cmd_status "$@" ;;
+  logs)    cmd_logs "$@" ;;
+  report)  cmd_report "$@" ;;
+  watch)   cmd_watch "$@" ;;
+  attach)  cmd_attach "$@" ;;
+  version|--version|-v) printf '%s %s\n' "$PROG" "$PIPELINE_VERSION" ;;
+  help|--help|-h) usage ;;
+  *) die "unknown command '$cmd' (try: $PROG help)" ;;
+esac
