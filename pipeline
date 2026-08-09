@@ -491,6 +491,24 @@ cmd_start() {
   holder="$(tmux list-panes -t "$SESSION" -F '#{pane_id}' | head -1)"
   tmux set-option -w -t "$SESSION" remain-on-exit on >/dev/null 2>&1 || true
 
+  # Agent state is shown on the pane border, labelled with the alias, so it
+  # never competes with the pane's own text. hooks/pane-state.sh sets
+  # @pipeline_state and the border colour per pane.
+  if [ "${PIPELINE_PANE_STYLE:-border}" = "border" ]; then
+    tmux set-option -w -t "$SESSION" pane-border-status top >/dev/null 2>&1 || true
+    tmux set-option -w -t "$SESSION" pane-border-format \
+      ' #{pane_title}#{?@pipeline_state, - #{@pipeline_state},} ' >/dev/null 2>&1 || true
+  fi
+
+  # Scroll and click in the attached session. Set on THIS session only - never
+  # on the user's global tmux config. history-limit must be set before the
+  # agent panes are created; panes only get the size in force when they start.
+  if [ "${PIPELINE_MOUSE:-on}" != "off" ]; then
+    tmux set-option -t "$SESSION" mouse on >/dev/null 2>&1 || true
+  fi
+  tmux set-option -t "$SESSION" history-limit "${PIPELINE_HISTORY_LIMIT:-50000}" \
+    >/dev/null 2>&1 || true
+
   local spec oldifs="$IFS" failed=""
   IFS=','
   for spec in $agents; do
@@ -944,6 +962,68 @@ cmd_report() {
 }
 
 # ---------------------------------------------------------------------------
+# cmd: mouse / peek
+# ---------------------------------------------------------------------------
+
+# Toggling matters because tmux's mouse mode takes over click-drag selection:
+# on macOS you hold Option to select text natively while it is on. Being able
+# to flip it for one long copy/paste beats detaching or memorising tmux syntax.
+cmd_mouse() {
+  local session="" want=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      on|off) want="$1"; shift ;;
+      -h|--help) printf 'usage: %s mouse [on|off] [--session <name>]\n' "$PROG"; exit 0 ;;
+      *) die "mouse: expected 'on' or 'off', got '$1'" ;;
+    esac
+  done
+  resolve_session "$session"
+  tmux has-session -t "$SESSION" 2>/dev/null || die "no tmux session named '$SESSION'"
+
+  if [ -z "$want" ]; then
+    printf 'mouse is %s for session %s\n' \
+      "$(tmux show-options -t "$SESSION" mouse 2>/dev/null | awk '{print $2}')" "$SESSION"
+    return 0
+  fi
+  tmux set-option -t "$SESSION" mouse "$want" >/dev/null 2>&1 \
+    || die "could not set mouse $want"
+  printf 'mouse %s for session %s\n' "$want" "$SESSION"
+  [ "$want" = "on" ] && \
+    printf '(hold Option while dragging to select text natively on macOS)\n'
+  return 0
+}
+
+# Read an agent's screen as plain text, without attaching. This is the
+# interface that works from a phone over SSH: no tmux UI to drive, no mouse, no
+# zooming - just the output.
+cmd_peek() {
+  local session="" alias="" lines="40"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session) session="${2:-}"; shift 2 ;;
+      --lines|-n) lines="${2:-40}"; shift 2 ;;
+      -h|--help) printf 'usage: %s peek <alias> [--lines N]\n' "$PROG"; exit 0 ;;
+      -*) die "peek: unknown flag '$1'" ;;
+      *) alias="$1"; shift ;;
+    esac
+  done
+  [ -n "$alias" ] || die "peek: <alias> is required"
+  require_cmd jq
+  resolve_session "$session"
+  require_state
+  agent_exists "$alias" || die "no agent registered as '$alias' (try: $PROG status)"
+
+  local pane
+  pane="$(agent_field "$alias" pane)"
+  pane_alive "$pane" || die "'$alias' has no live pane (try: $PROG status)"
+
+  printf '=== %s (last %s lines) ===\n' "$alias" "$lines"
+  tmux capture-pane -p -S - -t "$pane" 2>/dev/null \
+    | grep -v '^[[:space:]]*$' | tail -"$lines"
+}
+
+# ---------------------------------------------------------------------------
 # cmd: doctor
 # ---------------------------------------------------------------------------
 
@@ -1004,6 +1084,17 @@ cmd_doctor() {
   printf '  ok   panes get PATH=%s\n' "$(pane_path)"
   printf '       (agents shell out to `pipeline`, so this is set on the pane command;\n'
   printf '        tmux ignores -e PATH=, taking PATH from the server environment)\n'
+
+  if tmux has-session 2>/dev/null; then
+    local sess
+    sess="$(ls -d /tmp/pipeline-* 2>/dev/null | head -1 | sed 's|.*/pipeline-||')"
+    if [ -n "$sess" ] && tmux has-session -t "$sess" 2>/dev/null; then
+      printf '\nsession "%s" display:\n' "$sess"
+      printf '  mouse           %s\n' "$(tmux show-options -t "$sess" mouse 2>/dev/null | awk '{print $2}')"
+      printf '  history-limit   %s\n' "$(tmux show-options -t "$sess" history-limit 2>/dev/null | awk '{print $2}')"
+      printf '  pane style      %s (PIPELINE_PANE_STYLE)\n' "${PIPELINE_PANE_STYLE:-border}"
+    fi
+  fi
 
   printf '\nrole files:\n'
   local role missing
@@ -1124,7 +1215,9 @@ $PROG $PIPELINE_VERSION - Agent Orchestrator Pipeline coordination CLI
   logs    [--follow]                                     tail the message log
   report                                                 session timeline
   watch   [--deadline <sec>] [--once]                    idle watchdog
+  peek    <alias> [--lines N]                            read an agent's screen as plain text
   attach                                                 attach to the tmux session
+  mouse   [on|off]                                       scroll/click in the attached session
   doctor                                                 diagnose the install and environment
   version
 
@@ -1150,6 +1243,8 @@ case "$cmd" in
   report)  cmd_report "$@" ;;
   watch)   cmd_watch "$@" ;;
   attach)  cmd_attach "$@" ;;
+  peek)    cmd_peek "$@" ;;
+  mouse)   cmd_mouse "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   version|--version|-v) printf '%s %s\n' "$PROG" "$PIPELINE_VERSION" ;;
   help|--help|-h) usage ;;

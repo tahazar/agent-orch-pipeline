@@ -142,17 +142,47 @@ Everything else:
 pipeline status                    # who is alive, and whether they are wedged
 pipeline logs --follow             # live message audit trail
 pipeline report                    # timeline, protocol violations, delivery problems
+pipeline peek conductor            # read an agent's screen as plain text
 pipeline doctor                    # diagnose the install: claude path, flags, role files
 pipeline tell conductor "status"   # ask the conductor directly
 ```
 
-### Pane colours
+### Pane state
 
-| Colour | Meaning |
+Each pane's **border** is labelled with the agent's alias and its state, and
+tinted to match:
+
+| Border | Meaning |
 |---|---|
 | blue | working |
-| yellow | waiting on **you** (you also get a macOS notification) |
+| amber | waiting on **you** (you also get a notification) |
 | green | idle / done |
+
+State is deliberately shown *around* the pane, not behind it: Claude Code picks
+its foreground colours assuming a dark background, so filling the pane with a
+colour destroys the contrast it was designed for.
+
+`PIPELINE_PANE_STYLE` chooses: `border` (default), `bg` (fill the pane
+background instead), or `none`. Under cmux, `none` is reasonable — its own tab
+ring already tells you when an agent wants you.
+
+### Scrolling and clicking
+
+`pipeline start` sets `mouse on` and a 50,000-line scrollback **on its own
+session only**, never on your global tmux config. So in the attached session the
+scroll wheel and click-to-focus work, and there is real history to scroll back
+through (tmux's default is 2,000 lines).
+
+The one habit that changes: while tmux owns the mouse, **hold Option to select
+text natively** on macOS. To turn it off for a long copy/paste:
+
+```bash
+pipeline mouse off      # and `pipeline mouse on` to put it back
+```
+
+`PIPELINE_MOUSE=off` starts sessions that way. Ordinary cmux panes — where you
+run `pipeline tell`, `status`, `logs` — are unaffected; native scroll and click
+already work there.
 
 ### Running under cmux
 
@@ -174,6 +204,34 @@ started it in.
   conductor expect to own agent lifecycle and git state.
 - cmux's sidebar shows the branch per pane, which pairs well with the serial
   model: the branch you see is the feature currently being built.
+
+### Driving it from a phone or tablet
+
+The tmux session is detached and persistent, so it survives closing the Mac's
+terminal and is there whenever you reconnect — SSH in from an iOS terminal and
+everything below works unchanged.
+
+**Prefer reading over attaching.** All agent state is on disk, so the
+friction-free loop needs no tmux UI, no mouse, and no wide screen:
+
+```bash
+cat docs/features/current/status.md   # where is everything
+pipeline status                        # who is alive
+pipeline peek conductor                # read an agent's screen as plain text
+pipeline peek builder-F002 --lines 80
+pipeline logs --follow
+```
+
+Answering a gate is a single command:
+
+```bash
+pipeline tell conductor "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+```
+
+If you do attach, six tiled panes are unreadable on a phone — use `prefix + z`
+to zoom one pane full-screen. `mouse on` (the default) is what makes two-finger
+scroll reach tmux's history; without it, scrolling does nothing, because tmux is
+on the alternate screen and the terminal app's own scrollback is empty.
 
 ### Answering a gate
 

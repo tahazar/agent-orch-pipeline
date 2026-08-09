@@ -201,6 +201,90 @@ tmux has-session -t "$DEAD_SESSION" 2>/dev/null
 [ ! -d "$DEAD_STATE" ]; check $? "removes the state directory too"
 rm -f "$FAIL_AGENT" "$SECOND_AGENT"
 
+# --- pane state must not touch the pane's own background -----------------
+# The hook used to paint the pane background a saturated colour, which wrecked
+# the contrast of Claude Code's TUI (it picks foreground colours assuming a
+# dark background). State belongs on the border, around the content.
+printf '\npane state styling:\n'
+conductor_pane="$(jq -r '.agents.conductor.pane' "$STATE/registry.json")"
+
+PIPELINE_ALIAS=conductor PIPELINE_DIR="$STATE" TMUX_PANE="$conductor_pane" \
+  bash "$ROOT/hooks/pane-state.sh" waiting >/dev/null 2>&1
+check $? "pane-state.sh runs against a live pane"
+
+bg="$(tmux display-message -p -t "$conductor_pane" '#{pane_bg}' 2>/dev/null)"
+[ "$bg" = "default" ]
+check $? "pane background is left alone (got '$bg')"
+
+st="$(tmux display-message -p -t "$conductor_pane" '#{@pipeline_state}' 2>/dev/null)"
+[ "$st" = "waiting" ]
+check $? "state recorded on the pane as @pipeline_state (got '$st')"
+
+tmux show-options -p -t "$conductor_pane" pane-border-style 2>/dev/null | grep -q 'fg='
+check $? "border colour set for the inactive case"
+tmux show-options -p -t "$conductor_pane" pane-active-border-style 2>/dev/null | grep -q 'fg='
+check $? "border colour set for the active case too"
+
+tmux show-options -w -t "$SESSION" pane-border-status 2>/dev/null | grep -q 'top'
+check $? "session shows the border label"
+tmux show-options -w -t "$SESSION" pane-border-format 2>/dev/null | grep -q 'pane_title'
+check $? "border label includes the agent alias"
+
+# Opt-outs.
+PIPELINE_PANE_STYLE=none PIPELINE_ALIAS=conductor PIPELINE_DIR="$STATE" \
+  TMUX_PANE="$conductor_pane" bash "$ROOT/hooks/pane-state.sh" done >/dev/null 2>&1
+st="$(tmux display-message -p -t "$conductor_pane" '#{@pipeline_state}' 2>/dev/null)"
+[ "$st" = "waiting" ]
+check $? "PIPELINE_PANE_STYLE=none changes nothing"
+
+PIPELINE_PANE_STYLE=bg PIPELINE_ALIAS=conductor PIPELINE_DIR="$STATE" \
+  TMUX_PANE="$conductor_pane" bash "$ROOT/hooks/pane-state.sh" done >/dev/null 2>&1
+bg="$(tmux display-message -p -t "$conductor_pane" '#{pane_bg}' 2>/dev/null)"
+[ "$bg" != "default" ]
+check $? "PIPELINE_PANE_STYLE=bg restores the old behaviour"
+tmux select-pane -t "$conductor_pane" -P 'bg=default' >/dev/null 2>&1
+
+( unset PIPELINE_ALIAS; bash "$ROOT/hooks/pane-state.sh" waiting ) >/dev/null 2>&1
+check $? "pane-state.sh no-ops cleanly outside a session"
+
+# --- mouse and scrollback -------------------------------------------------
+printf '\nmouse and scrollback:\n'
+tmux show-options -t "$SESSION" mouse 2>/dev/null | grep -q 'on'
+check $? "mouse is on for the session"
+
+# history-limit only applies to panes created AFTER it is set, so assert on an
+# actual agent pane rather than on the session default.
+hl="$(tmux display-message -p -t "$conductor_pane" '#{history_limit}' 2>/dev/null)"
+[ "$hl" = "50000" ]
+check $? "an agent pane got the larger scrollback (got '$hl')"
+
+"$PIPELINE" mouse off --session "$SESSION" >/dev/null 2>&1
+tmux show-options -t "$SESSION" mouse 2>/dev/null | grep -q 'off'
+check $? "pipeline mouse off works on a live session"
+"$PIPELINE" mouse on --session "$SESSION" >/dev/null 2>&1
+tmux show-options -t "$SESSION" mouse 2>/dev/null | grep -q 'on'
+check $? "pipeline mouse on works on a live session"
+"$PIPELINE" mouse --session "$SESSION" 2>&1 | grep -q 'mouse is on'
+check $? "pipeline mouse with no argument reports state"
+
+MOUSE_OFF_SESSION="pipeline-mouseoff-$$"
+PIPELINE_MOUSE=off PIPELINE_AGENT_CMD="$ECHO_AGENT" "$PIPELINE" start \
+  --session "$MOUSE_OFF_SESSION" --agents "conductor" >/dev/null 2>&1
+tmux show-options -A -t "$MOUSE_OFF_SESSION" mouse 2>/dev/null | grep -q 'off'
+check $? "PIPELINE_MOUSE=off is honoured at start"
+tmux kill-session -t "$MOUSE_OFF_SESSION" 2>/dev/null
+rm -rf "/tmp/pipeline-$MOUSE_OFF_SESSION"
+
+# --- peek -----------------------------------------------------------------
+# The interface that works from a phone over SSH: no tmux UI, no mouse.
+printf '\npeek:\n'
+"$PIPELINE" peek conductor --session "$SESSION" 2>&1 | grep -q 'ready role=conductor'
+check $? "peek prints the agent's screen without attaching"
+"$PIPELINE" peek conductor --lines 1 --session "$SESSION" 2>&1 | grep -c . | grep -q '^2$'
+check $? "--lines bounds the output"
+"$PIPELINE" peek nosuchagent --session "$SESSION" >/dev/null 2>&1
+[ $? != 0 ]; check $? "peek on an unknown alias fails clearly"
+
 # --- panes can reach the pipeline CLI -------------------------------------
 # Agents coordinate ONLY by shelling out to `pipeline`. A pane that cannot
 # resolve it has no message channel at all, and the failure is near-silent.

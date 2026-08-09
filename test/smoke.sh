@@ -340,11 +340,17 @@ printf '%s' "$st" | grep -q 'dead-lettered'
 chk $? "status surfaces dead-lettered messages"
 
 # pane-state.sh must work against a live pane and no-op without an alias.
-PIPELINE_ALIAS=arbiter PIPELINE_DIR="$STATE" TMUX_PANE="$p_pane" TMUX=1 \
+# TMUX must not be faked here: an invalid socket spec makes every tmux command
+# in the hook fail, which would make these assertions vacuous.
+PIPELINE_ALIAS=arbiter PIPELINE_DIR="$STATE" TMUX_PANE="$p_pane" \
   bash "$ROOT/hooks/pane-state.sh" waiting >/dev/null 2>&1
 chk $? "pane-state.sh runs against a live pane"
-bg="$(tmux show-options -p -t "$p_pane" 2>/dev/null | grep -c 'window-style\|colour136' || true)"
-[ "${bg:-0}" -ge 0 ]; chk $? "pane-state.sh completed without error"
+bg="$(tmux display-message -p -t "$p_pane" '#{pane_bg}' 2>/dev/null)"
+[ "$bg" = "default" ]
+chk $? "pane state does not touch the pane background (got '$bg')"
+st="$(tmux display-message -p -t "$p_pane" '#{@pipeline_state}' 2>/dev/null)"
+[ "$st" = "waiting" ]
+chk $? "pane state recorded on the border instead (got '$st')"
 ( unset PIPELINE_ALIAS; bash "$ROOT/hooks/pane-state.sh" waiting ) >/dev/null 2>&1
 chk $? "pane-state.sh no-ops cleanly outside a session"
 
