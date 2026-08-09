@@ -1,0 +1,7 @@
+# Rendered per-role settings: generated from settings/templates/*.json.in by
+# build-prompts.sh, and machine-specific (hook commands carry this checkout's
+# absolute path). The templates are the reviewable source.
+/settings/role-*.json
+
+# Scratch output from test runs.
+/test/.tmp/

@@ -1,0 +1,36 @@
+{
+  "_comment": "Rendered to settings/role-orch.json by build-prompts.sh. Orch owns git integration and contracts, so it is the only role allowed to merge, push, or open a PR.",
+  "permissions": {
+    "allow": [
+      "Bash(pipeline:*)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+      "Bash(git rev-parse:*)", "Bash(git branch:*)", "Bash(git add:*)",
+      "Bash(git commit:*)", "Bash(git checkout:*)", "Bash(git switch:*)",
+      "Bash(git merge:*)", "Bash(git rebase:*)", "Bash(git revert:*)",
+      "Bash(git worktree:*)", "Bash(git fetch:*)", "Bash(git push:*)",
+      "Bash(gh:*)",
+      "Bash(mkdir:*)", "Bash(ln:*)", "Bash(cat:*)", "Bash(ls:*)",
+      "Bash(npm test:*)", "Bash(npm run:*)", "Bash(pytest:*)", "Bash(make:*)",
+      "Bash(cargo test:*)", "Bash(go test:*)",
+      "Read", "Glob", "Grep"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh running" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh running" }] }
+    ],
+    "Notification": [
+      { "hooks": [
+        { "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh waiting" },
+        { "type": "command", "command": "@@INSTALL_DIR@@/hooks/notify-developer.sh" }
+      ] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "@@INSTALL_DIR@@/hooks/pane-state.sh done" }] }
+    ]
+  }
+}
