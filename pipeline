@@ -733,11 +733,27 @@ cmd_attach() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --session) session="${2:-}"; shift 2 ;;
+      -h|--help) printf 'usage: %s attach [--session <name>]\n' "$PROG"; exit 0 ;;
       *) die "attach: unknown argument '$1'" ;;
     esac
   done
   resolve_session "$session"
-  tmux attach -t "$SESSION"
+  tmux has-session -t "$SESSION" 2>/dev/null || die "no tmux session named '$SESSION'"
+
+  # Sessions are created detached, so `pipeline start` works from anywhere -
+  # including from inside another multiplexer. Attaching is the part that
+  # cares: plain `tmux attach` refuses to run inside tmux ("sessions should be
+  # nested with care"). When we are already a tmux client, move that client to
+  # the pipeline session instead of nesting.
+  if [ -n "${TMUX:-}" ]; then
+    if ! tmux switch-client -t "$SESSION" 2>/dev/null; then
+      printf '%s: already inside tmux, and there is no client to switch.\n' "$PROG" >&2
+      printf 'From a terminal outside tmux, run: tmux attach -t %s\n' "$SESSION" >&2
+      exit 1
+    fi
+  else
+    tmux attach -t "$SESSION"
+  fi
 }
 
 cmd_report() {
