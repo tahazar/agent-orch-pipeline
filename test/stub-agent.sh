@@ -115,7 +115,7 @@ next_feature() {  # next_feature <current or empty>
 # --------------------------------------------------------------------------
 
 conductor_kickoff() {
-  local body="$1" base mode slug sess
+  local body="$1" params="$2" base mode slug sess
   base="$(git rev-parse --abbrev-ref HEAD)"
   case "$base" in
     main|master)
@@ -124,7 +124,7 @@ conductor_kickoff() {
   esac
 
   mode="normal"
-  case "$body" in *"test mode"*) mode="test" ;; esac
+  case "$params" in *mode=test*) mode="test" ;; esac
 
   slug="toy"
   sess="session-$(date -u +%Y-%m-%d)-$slug"
@@ -280,7 +280,7 @@ conductor_handle() {
   f="$(printf '%s' "$params" | sed -n 's/.*feature=\([^ ]*\).*/\1/p')"
 
   case "$sig" in
-    KICKOFF) conductor_kickoff "$body" ;;
+    KICKOFF) conductor_kickoff "$body" "$params" ;;
 
     APPROVED)
       case "$params" in

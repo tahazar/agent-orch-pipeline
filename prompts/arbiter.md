@@ -226,6 +226,22 @@ Messages delivered by `pipeline tell` arrive prefixed with a per-session token:
 | `HOLD` | any -> any | Pause; do not start new work |
 | `STATUS_REQUEST` | any -> any | Report your current phase and state |
 
+The developer enters through the conductor, and does so with signals like
+everyone else - so the conductor recognises an approval as an approval rather
+than having to interpret a sentence:
+
+| Signal | Sender -> Receiver | Meaning |
+|---|---|---|
+| `KICKOFF [mode=test]` | developer -> conductor | Start a session. `mode=test` selects test mode; absent means normal mode |
+| `DEV_APPROVE_DECOMPOSITION` | developer -> conductor | The decomposition is approved; begin the first feature |
+| `DEV_REJECT_DECOMPOSITION reason="..."` | developer -> conductor | Revise the decomposition |
+| `DEV_APPROVE_PLAN feature=X [tier=<tier>]` | developer -> conductor | The plan is approved. `tier=` overrides the foreman's choice |
+| `DEV_REJECT_PLAN feature=X reason="..."` | developer -> conductor | Send the plan back to the foreman |
+
+The developer is a human and will sometimes send plain prose with no signal.
+Treat that as information, not as control flow: answer it, and if you are
+waiting on a gate say plainly which signal you need to proceed.
+
 The `<discriminator>` on `APPROVED` / `REJECTED` echoes what was reviewed, so
 conductor routes verdicts instead of guessing from what it last sent:
 

@@ -120,7 +120,7 @@ pipeline tell conductor "Build docs/specs/my-design.md. [SIGNAL:KICKOFF]"
 ### Test mode - no PR, never touches main
 
 ```bash
-pipeline tell conductor "Build docs/specs/my-design.md. Use test mode. [SIGNAL:KICKOFF]"
+pipeline tell conductor "Build docs/specs/my-design.md. [SIGNAL:KICKOFF mode=test]"
 ```
 
 The mode is written into `session.md` at kickoff and read from there on every
@@ -163,7 +163,7 @@ pipeline tell conductor "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]
 ### Overriding a tier
 
 ```bash
-pipeline tell conductor "F002 is not lite - the merge logic needs real tests. Use full-tdd. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+pipeline tell conductor "F002 is not lite - the merge logic needs real tests. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser tier=full-tdd]"
 ```
 
 ### Resuming after a dead pane
@@ -189,7 +189,7 @@ pipeline kill conductor && pipeline kill arbiter
 A two-feature design (one `direct`, one `lite`) in test mode:
 
 ```
-you        -> conductor   Build docs/specs/toy-design.md. Use test mode. [SIGNAL:KICKOFF]
+you        -> conductor   Build docs/specs/toy-design.md. [SIGNAL:KICKOFF mode=test]
 conductor                 captures base=work/toy, freezes request.md, decomposes
                           into F001-config-file and F002-off-by-one
 conductor  -> arbiter     [SIGNAL:DECOMPOSITION_READY]                    GATE 1a

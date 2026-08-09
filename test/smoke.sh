@@ -20,7 +20,7 @@ STATE="/tmp/pipeline-$SESSION"
 WORK="${TMPDIR:-/tmp}/pipeline-smoke-repo-$$"
 SHIMS="$WORK/.shims"
 
-REQUEST='Build docs/specs/toy-design.md. Use test mode.'
+REQUEST='Build docs/specs/toy-design.md.'
 
 PASS=0
 FAIL=0
@@ -100,7 +100,7 @@ sleep 1
 # Kickoff, then act as the developer at each approval gate.
 # --------------------------------------------------------------------------
 printf '\nsession:\n'
-"$PIPELINE" tell conductor "$REQUEST [SIGNAL:KICKOFF]" --session "$SESSION" >/dev/null 2>&1
+"$PIPELINE" tell conductor "$REQUEST [SIGNAL:KICKOFF mode=test]" --session "$SESSION" >/dev/null 2>&1
 chk $? "kickoff delivered to conductor"
 
 waited=0

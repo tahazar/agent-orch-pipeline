@@ -90,6 +90,32 @@ else
   bad "signals used but not documented in workflow.md:$undocumented"
 fi
 
+# The developer sends signals too. Anything the README tells a human to type
+# must be in the vocabulary AND handled by the conductor - otherwise the
+# conductor's own rule ("unrecognized signal names are ignored") applies and the
+# session stalls on the very first message.
+dev_signals="$(grep -ho '\[SIGNAL:[A-Z_]*' "$ROOT/README.md" 2>/dev/null \
+               | sed 's/\[SIGNAL://' | sort -u)"
+undoc_dev=""
+unhandled_dev=""
+for sig in $dev_signals; do
+  grep -q "\`$sig" "$CONTEXT/workflow.md" 2>/dev/null || undoc_dev="$undoc_dev $sig"
+  case "$sig" in
+    KICKOFF|DEV_*)
+      grep -q "$sig" "$CONTEXT/conductor-role.md" 2>/dev/null || unhandled_dev="$unhandled_dev $sig" ;;
+  esac
+done
+if [ -z "$undoc_dev" ]; then
+  ok "every signal the README tells the developer to send is in the vocabulary"
+else
+  bad "README tells the developer to send undocumented signals:$undoc_dev"
+fi
+if [ -z "$unhandled_dev" ]; then
+  ok "the conductor's protocol handles every developer-facing signal"
+else
+  bad "conductor-role.md does not handle:$unhandled_dev"
+fi
+
 # Signals conductor must never see are worker-internal; make sure conductor's own role
 # file does not route them.
 internal="TESTS_READY AUDIT_PASS AUDIT_FAIL IMPL_COMPLETE REVIEW_PASS REVIEW_FAIL"

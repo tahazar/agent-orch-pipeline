@@ -7,8 +7,11 @@ resume from the recorded phase - never redo completed work.
 
 ## PHASE 0 - kickoff
 
-Triggered by the developer messaging you with the request (inline, or a path or
-URL to a design doc) and optionally the words "test mode".
+**Trigger:** `[SIGNAL:KICKOFF]` from the developer, carrying the request
+inline or as a path or URL to a design doc. `KICKOFF mode=test` selects test
+mode; no `mode=` key means normal mode. Read the mode from the signal key, not
+from the prose - "let's just test this" in a sentence is not test mode, and
+guessing wrong is how a test run opens a PR.
 
 ### 0.1 Capture the base branch
 
@@ -134,7 +137,13 @@ how you know it is the decomposition verdict.
 
 Present the decomposition to the developer: the ordered features, one line each,
 any parallel group with its justification, and anything you had to interpret.
-Ask for approval or changes.
+Then say explicitly which signal you need back:
+
+> Reply `[SIGNAL:DEV_APPROVE_DECOMPOSITION]` to start F001, or
+> `[SIGNAL:DEV_REJECT_DECOMPOSITION reason="..."]` to send it back.
+
+Wait for one of those two signals. Prose without a signal is information, not
+approval - answer it, then restate what you are waiting on.
 
 ### 1.5 Initialise the session status surface
 
@@ -188,10 +197,16 @@ discriminator, not on what you last sent.**
 - `REJECTED`: send `PLAN_REJECTED feature=X` to the foreman with the review path.
   Back to `PLANNING`. Max 2 plan-gate cycles, then escalate to the developer.
 - `APPROVED`: move to `DEV_APPROVAL` and take it to the developer, including the
-  tier and its justification. **The developer may override the tier** - if they
-  do, tell the foreman the new tier and have it re-plan against it.
+  tier and its justification. Say which signal you need back:
 
-Then:
+  > Reply `[SIGNAL:DEV_APPROVE_PLAN feature=X]`, add `tier=<tier>` to override
+  > the tier, or `[SIGNAL:DEV_REJECT_PLAN feature=X reason="..."]`.
+
+  **The developer may override the tier** with the `tier=` key. If they do, tell
+  the foreman the new tier and have it re-plan against it before proceeding -
+  an overridden tier still goes back through the plan gate.
+
+On `DEV_APPROVE_PLAN feature=X`:
 
 ```bash
 pipeline tell foreman-F00N-<slug> 'Plan approved by arbiter and the developer, tier stays <tier>. Proceed. [SIGNAL:PLAN_APPROVED feature=F00N-<slug>]'
