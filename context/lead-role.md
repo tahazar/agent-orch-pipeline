@@ -92,6 +92,16 @@ guessing: the feature id, the branch, the worktree path if any, the path to
 `requirements.md`, and **your own alias** (`$PIPELINE_ALIAS`) so it knows where
 to reply.
 
+Dispatch a worker with `FEATURE_START feature=X task=<task>`, where `task` is
+one of `write-tests`, `audit-tests`, `implement`, `review-impl`, `adjudicate`:
+
+```bash
+pipeline tell impl-F003-auth 'Tests are audited and green to work against. Feature F003-auth, branch feature/F003-auth, requirements at docs/features/current/F003-auth/requirements.md. Reply to me at lead-F003-auth. [SIGNAL:FEATURE_START feature=F003-auth task=implement]'
+```
+
+The worker acts on the signal, not on the prose - so the `task=` value must be
+right even when the surrounding sentence already says it.
+
 ### Routing what comes back
 
 Workers signal you and only you. Handle each:

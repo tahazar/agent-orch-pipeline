@@ -195,7 +195,7 @@ Messages delivered by `pipeline tell` arrive prefixed with a per-session token:
 | `PLAN_REVIEW_READY feature=X` | orch -> principal | A plan + tier is ready for GATE 1b |
 | `APPROVED <discriminator>` | principal -> orch | Gate passed |
 | `REJECTED <discriminator>` | principal -> orch | Gate failed; findings are in the review file |
-| `FEATURE_START feature=X [worktree=<path>]` | orch -> lead | Begin this feature |
+| `FEATURE_START feature=X [worktree=<path>] [task=<task>]` | orch -> lead, lead -> worker | Begin work. Orch uses it to start a lead on a feature; a lead uses it to dispatch a worker, naming the job with `task=` (`write-tests`, `audit-tests`, `implement`, `review-impl`, `adjudicate`) |
 | `PLAN_READY feature=X` | lead -> orch | Plan written, ready for review |
 | `PLAN_APPROVED feature=X` | orch -> lead | Plan cleared both gates; execute |
 | `PLAN_REJECTED feature=X` | orch -> lead | Re-plan; findings are in the review file |
@@ -224,9 +224,14 @@ orch routes verdicts instead of guessing from what it last sent:
 - `contract` - a contract change
 - bare (no discriminator) - the decomposition
 
-**Playbook-internal signals** (lead <-> workers only; orch never sees these):
+**Playbook-internal signals** (workers -> lead only; orch never sees these):
 `TESTS_READY`, `AUDIT_PASS`, `AUDIT_FAIL`, `IMPL_COMPLETE`, `REVIEW_PASS`,
 `REVIEW_FAIL`.
+
+In the other direction, a lead dispatches a worker with
+`FEATURE_START feature=X task=<task>`. There is no separate vocabulary for
+lead-to-worker dispatch: the `task=` key names the job, so a worker still acts
+only on an exact signal match and never on the surrounding prose.
 
 ### BLOCKED reason conventions
 
@@ -942,6 +947,16 @@ Every message you send a worker should carry what it needs to act without
 guessing: the feature id, the branch, the worktree path if any, the path to
 `requirements.md`, and **your own alias** (`$PIPELINE_ALIAS`) so it knows where
 to reply.
+
+Dispatch a worker with `FEATURE_START feature=X task=<task>`, where `task` is
+one of `write-tests`, `audit-tests`, `implement`, `review-impl`, `adjudicate`:
+
+```bash
+pipeline tell impl-F003-auth 'Tests are audited and green to work against. Feature F003-auth, branch feature/F003-auth, requirements at docs/features/current/F003-auth/requirements.md. Reply to me at lead-F003-auth. [SIGNAL:FEATURE_START feature=F003-auth task=implement]'
+```
+
+The worker acts on the signal, not on the prose - so the `task=` value must be
+right even when the surrounding sentence already says it.
 
 ### Routing what comes back
 
