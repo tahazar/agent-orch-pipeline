@@ -31,11 +31,16 @@ payload="$(cat 2>/dev/null)"
 path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)"
 [ -n "$path" ] || exit 0
 
-repo="$(orch_repo_root)"
-rel="$path"
-case "$path" in
-  "$repo"/*) rel="${path#"$repo"/}" ;;
-  /*) rel="$path" ;;
+# Both sides are resolved before the prefix strip. git reports the repo with
+# symlinks resolved; the tool input carries whatever path the agent typed. On
+# macOS those differ for anything under /tmp or $TMPDIR (/var -> /private/var),
+# and an unresolved comparison would leave `rel` absolute, match no ALLOW glob,
+# and block a legitimate write on one platform only.
+repo="$(orch_realpath "$(orch_repo_root)")"
+abs="$(orch_realpath "$path")"
+rel="$abs"
+case "$abs" in
+  "$repo"/*) rel="${abs#"$repo"/}" ;;
 esac
 
 # ALLOW and DENY are space-separated shell globs, evaluated against the

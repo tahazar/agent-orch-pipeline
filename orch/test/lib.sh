@@ -37,6 +37,11 @@ not_contains() {
 WORK=''
 setup_repo() {  # setup_repo [name]
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/orch-test-${1:-x}.XXXXXX")"
+  # Pin the session id so ledger rows are deterministic. Without this the suite
+  # behaves differently depending on whether it happens to be running inside a
+  # Claude session, which is exactly the kind of environment dependence a test
+  # suite must not have.
+  export CLAUDE_CODE_SESSION_ID="orch-test-session"
   export ORCH_TASKS_ROOT="$WORK/.tasks"
   export CLAUDE_CODE_TASK_LIST_ID="orch-test-$$"
   export ORCH_REPO="$WORK/repo"

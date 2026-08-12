@@ -74,7 +74,10 @@ grep -rn "ORCH_REPO" "$ROOT"/c*/docs/features/F010-bestofn/APPROACH.md >/dev/nul
 printf '\nrepo resolution inside a worktree:\n'
 resolved="$( cd "$ROOT/c1" && env -u ORCH_REPO CLAUDE_PROJECT_DIR="$ORCH_REPO" \
              bash -c '. "'"$ORCH_ROOT"'/lib/common.sh"; orch_repo_root' )"
-[ "$resolved" = "$ROOT/c1" ]
+# Compared physically: git resolves symlinks and $TMPDIR does not, which on
+# macOS makes these differ by a /private prefix for the same directory.
+want="$( cd -P "$ROOT/c1" && pwd )"
+[ "$(cd -P "$resolved" 2>/dev/null && pwd)" = "$want" ]
 chk $? "orch resolves the worktree, not CLAUDE_PROJECT_DIR (got $resolved)"
 
 # --- collection reads each candidate's own attestations -------------------

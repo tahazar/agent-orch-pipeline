@@ -80,6 +80,27 @@ orch_repo_root() {
   printf ''
 }
 
+# Physical path of an existing file or directory, symlinks resolved.
+#
+# macOS makes this necessary rather than pedantic: /var is a symlink to
+# /private/var, so `git rev-parse --show-toplevel` returns the resolved form
+# while $TMPDIR and most tool inputs carry the unresolved one. Comparing those
+# two as strings fails silently — and in hooks/write-scope.sh a failed prefix
+# strip means refusing a write the role is entitled to make, on macOS only.
+#
+# No `readlink -f`: it does not exist there either.
+orch_realpath() {
+  local p="$1" d b
+  [ -n "$p" ] || { printf ''; return 0; }
+  if [ -d "$p" ]; then
+    ( cd -P "$p" 2>/dev/null && pwd ) || printf '%s' "$p"
+    return 0
+  fi
+  d="$(dirname "$p")"; b="$(basename "$p")"
+  d="$( cd -P "$d" 2>/dev/null && pwd )"
+  if [ -n "$d" ]; then printf '%s/%s' "$d" "$b"; else printf '%s' "$p"; fi
+}
+
 orch_require_repo() {
   ORCH_REPO="$(orch_repo_root)"
   [ -n "$ORCH_REPO" ] || die "not inside a git repository (set ORCH_REPO)"

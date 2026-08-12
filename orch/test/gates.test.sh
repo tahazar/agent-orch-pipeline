@@ -157,4 +157,16 @@ chk_rc 2 "$rc" "a reviewer contributes information, never actions"
 out="$(ws "$ORCH_REPO/src/calc.py" '')"; rc=$?
 chk_rc 0 "$rc" "an unroled session is not confined by accident"
 
+# The path the agent supplies and the path git reports are not always spelled
+# the same. On macOS /var is a symlink to /private/var, so a repo under $TMPDIR
+# is reported by git with a /private prefix the tool input does not have. An
+# unresolved string compare leaves the path absolute, matches no allow glob, and
+# refuses a write the role is entitled to make — on one platform only.
+printf '\nwrite scope through a symlinked path:\n'
+ln -s "$ORCH_REPO" "$WORK/link-to-repo" 2>/dev/null
+out="$(ws "$WORK/link-to-repo/docs/features/F002-gates/design.md" conductor)"; rc=$?
+chk_rc 0 "$rc" "an allowed path reached through a symlink is still allowed"
+out="$(ws "$WORK/link-to-repo/src/calc.py" conductor)"; rc=$?
+chk_rc 2 "$rc" "and a denied path reached through a symlink is still denied"
+
 finish gates

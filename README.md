@@ -178,7 +178,7 @@ orch/
   hooks/                    gate-guard, task-guard, write-scope, audit-message,
                             health-probe
   settings.json             hook wiring    settings/  per-role permissions
-  test/                     run-all.sh — 320 assertions, no session required
+  test/                     run-all.sh — 322 assertions, no session required
 ```
 
 State lives in exactly three places: **the shared task list** (coordination,
@@ -239,7 +239,7 @@ entries are first-hand and which are not.
 bash orch/test/run-all.sh
 ```
 
-320 assertions across eight suites. No Claude session, no API key, no network,
+322 assertions across eight suites. No Claude session, no API key, no network,
 no tmux. Each suite builds a throwaway git repo and its own task-list root, so
 nothing touches `~/.claude` and nothing is left behind.
 

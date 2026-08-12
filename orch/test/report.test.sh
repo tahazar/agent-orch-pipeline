@@ -41,8 +41,12 @@ chk $? "with no transcript found, usage is reported as found:0"
 chk $? "and the token count is 0, not an estimate"
 
 # And when a transcript IS there, the number comes from the file rather than
-# from anybody's recollection.
-sid="$(jq -s -r '[.[] | .session // empty] | .[0] // ""' "$ORCH_REPO/docs/features/F020-report/ledger.jsonl")"
+# from anybody's recollection. The session id is pinned by setup_repo, so this
+# holds whether or not the suite is running inside a live Claude session — a
+# ledger row records an empty session when there is none, and `// empty` does
+# not drop an empty string.
+sid="$(jq -s -r '[.[] | select((.session // "") != "") | .session] | .[0] // ""' \
+        "$ORCH_REPO/docs/features/F020-report/ledger.jsonl")"
 if [ -n "$sid" ]; then
   mkdir -p "$ORCH_TRANSCRIPTS/proj"
   printf '%s\n' \
