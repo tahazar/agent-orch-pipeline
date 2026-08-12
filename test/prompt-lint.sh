@@ -280,7 +280,15 @@ require_phrase "$CONTEXT/arbiter-role.md" "commit-sha:" \
 # This project uses its own vocabulary. Guard against any predecessor's agent
 # names leaking back in through a copied snippet or a half-finished edit.
 printf '\nnaming hygiene:\n'
-LEGACY_AGENTS='\b(orch|principal|tdd-(tester|reviewer|impl))\b'
+#
+# `orch` was on this list until v2 claimed the name: it is now the v2 CLI, the
+# directory that CLI lives in, and a documented command in the README. A stale-
+# name check that can never pass again is a check somebody eventually deletes
+# wholesale, so it is retired here deliberately rather than being defeated by an
+# ever-growing set of exclusions. The names below are still dead and still
+# guarded; if `orch` ever reappears as an AGENT alias in `context/`, that is
+# what the role-name checks above are for.
+LEGACY_AGENTS='\b(principal|tdd-(tester|reviewer|impl))\b'
 
 # Scan tracked source plus the assembled prompts. Rendered settings are skipped
 # deliberately: they embed this checkout's absolute path, and a repository

@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  orch:
+    name: orch v2 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # macOS ships bash 3.2 and no flock(1). That is the point of running it
+      # here: orch's portability rules exist for this runner, and the O_EXCL
+      # lock fallback is only exercised on it.
+      - name: environment
+        run: |
+          bash --version | head -1
+          jq --version
+          git --version
+          command -v flock || echo "flock absent (expected on macOS)"
+
+      - name: syntax
+        run: |
+          set -e
+          for f in orch/bin/orch orch/lib/*.sh orch/lib/substrate/*.sh \
+                   orch/hooks/*.sh orch/test/*.sh; do
+            bash -n "$f"
+          done
+
+      - name: no bashisms above bash 3.2
+        run: |
+          # Associative arrays, mapfile/readarray, and ${var,,} are 4.0+ and
+          # macOS will never have them. Catch them here rather than on someone's
+          # laptop.
+          # Comment lines are excluded: the portability rules are written down
+          # in common.sh's header, and naming a construct is not using it.
+          hits="$(grep -nE 'declare -A|readarray|mapfile|\$\{[A-Za-z_]+,,\}|\$\{[A-Za-z_]+\^\^\}' \
+                    orch/bin/orch orch/lib/*.sh orch/lib/substrate/*.sh orch/hooks/*.sh \
+                  | grep -vE ':[0-9]+:[[:space:]]*#' || true)"
+          if [ -n "$hits" ]; then
+            printf '%s\n' "$hits" >&2
+            echo "bash 4+ construct found" >&2
+            exit 1
+          fi
+
+      - name: settings.json is valid JSON
+        run: |
+          set -e
+          jq -e . orch/settings.json > /dev/null
+          for f in orch/settings/*.json; do jq -e . "$f" > /dev/null; done
+
+      - name: test suite
+        run: bash orch/test/run-all.sh
+
+  pipeline:
+    name: pipeline v1 lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax
+        run: |
+          set -e
+          bash -n pipeline
+          bash -n install.sh
+          bash -n build-prompts.sh
+          for f in hooks/*.sh test/*.sh; do bash -n "$f"; done
+      # v1's own suites need tmux and a rendered settings tree; they are not run
+      # here. v1 is in maintenance until orch reaches parity — see Migration.
+      - name: prompts are in sync with context/
+        run: |
+          ./build-prompts.sh > /dev/null
+          git diff --exit-code -- prompts/ \
+            || { echo "prompts/ is stale — run ./build-prompts.sh and commit" >&2; exit 1; }
