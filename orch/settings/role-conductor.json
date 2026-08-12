@@ -1,0 +1,40 @@
+{
+  "$comment": [
+    "Conductor. Owns the task list and the merge, and writes nothing outside",
+    "docs/features/**.",
+    "",
+    "v1's conductor shipped with \"deny\": [] — the single widest hole in that",
+    "system. The role that could merge was also the role that could edit any file",
+    "in the repo, which made every other permission boundary decorative: the",
+    "conductor could make a change itself and then approve it.",
+    "",
+    "The path confinement is enforced by orch/hooks/write-scope.sh with",
+    "ORCH_ROLE=conductor, not by the globs here — in Claude Code deny beats allow,",
+    "so 'deny everything, allow one prefix' cannot be expressed as a rule. What",
+    "remains here are the denies that are absolute for every role: history",
+    "rewriting and recursive deletion.",
+    "",
+    "Launch:",
+    "  ORCH_ROLE=conductor CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
+    "  claude --settings orch/settings.json \\",
+    "         --settings orch/settings/role-conductor.json"
+  ],
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Bash(orch:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git worktree list:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(rm -rf:*)"
+    ]
+  }
+}

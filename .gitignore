@@ -5,3 +5,8 @@
 
 # Scratch output from test runs.
 /test/.tmp/
+
+# orch v2 working state: candidate and baseline worktrees, and the current
+# feature marker. The artifacts these produce live in docs/features/ and ARE
+# committed; the worktrees themselves are scratch.
+/.orch/

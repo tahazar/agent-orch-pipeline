@@ -1,0 +1,87 @@
+{
+  "$comment": [
+    "orch v2 hook wiring. Merge into .claude/settings.json, or launch with",
+    "  claude --settings orch/settings.json",
+    "",
+    "SPEC DEVIATION (see README, 'Where the spec and the CLI disagree'): §6.2 of",
+    "the overhaul spec calls for the declarative `if` field with permission-rule",
+    "syntax, e.g. \"if\": \"Bash(git merge*)\", to pre-filter without spawning a",
+    "process. That field does not exist in CLI 2.1.228 — its settings validator",
+    "states hooks map event names to matcher arrays carrying string matchers, and",
+    "there is no if-condition anywhere in the binary. So the matcher below narrows",
+    "to the Bash tool and gate-guard.sh does the command match itself. The cost is",
+    "one short-lived process per Bash call; the correctness is identical.",
+    "",
+    "crossSessionInbound must be `accept` on every session in the team, and every",
+    "session must launch in the same permission-mode class — a message across",
+    "mismatched classes is held for approval and dropped after dialogExpiry",
+    "(default 5m), which is silence, not an error. `orch doctor` checks both."
+  ],
+
+  "crossSessionInbound": "accept",
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/gate-guard.sh", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/audit-message.sh", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/write-scope.sh", "timeout": 10 }
+        ]
+      }
+    ],
+
+    "PostToolUse": [
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/audit-message.sh", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/health-probe.sh", "timeout": 10 }
+        ]
+      }
+    ],
+
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/health-probe.sh", "timeout": 10 }
+        ]
+      }
+    ],
+
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/health-probe.sh", "timeout": 10 }
+        ]
+      }
+    ],
+
+    "TaskCompleted": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/orch/hooks/task-guard.sh", "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}
