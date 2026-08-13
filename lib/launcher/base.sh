@@ -65,19 +65,58 @@ launcher_known_role() {  # launcher_known_role <role>
   [ -r "$ORCH_HOME/agents/$1.md" ]
 }
 
+# Single-quote a string for a shell command line, surviving embedded quotes.
+launcher_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
 # The command a session runs. Single-quoted for the shell it will be pasted or
 # sent into, so a repo path with a space does not silently split.
 #
-# ORCH_EFFORT, when set, becomes --effort. It is an env var rather than a
-# parameter because the caller that knows the right effort (team start reading
-# the tier, audit pinning xhigh) is two layers above the three launcher
-# implementations, and threading one string through every signature is how a
-# seam accretes arguments. Empty means the model's default, which is correct
-# for every tier above quick.
+# ORCH_EFFORT, when set, becomes --effort; ORCH_PROMPT, when set, becomes the
+# session's opening message. Env vars rather than parameters because the
+# callers that know them (team start reading the tier, audit pinning xhigh,
+# spawn building marching orders) are two layers above the three launcher
+# implementations, and threading strings through every signature is how a seam
+# accretes arguments.
+#
+# The prompt matters more than it looks. A `claude --agent` session with no
+# opening message sits at an empty prompt waiting for a human to type — which
+# is what turned the first real run into the human doing every role's job by
+# hand. A spawned agent must wake up already told where its work is.
 launcher_claude_cmd() {  # launcher_claude_cmd <role> <name>
-  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s" \
+  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s%s" \
     "$1" "$2" "$ORCH_PERMISSION_MODE" "$(launcher_role_settings "$1")" \
-    "${ORCH_EFFORT:+ --effort $ORCH_EFFORT}"
+    "${ORCH_EFFORT:+ --effort $ORCH_EFFORT}" \
+    "${ORCH_PROMPT:+ $(launcher_shq "$ORCH_PROMPT")}"
+}
+
+# The marching orders a role wakes up with. Deliberately short: the role's .md
+# carries the doctrine, the ledger and artifacts carry the state — the order
+# only has to say "you are on duty, the work is over there, begin". Anything
+# longer starts duplicating the role definition and drifts from it.
+launcher_orders() {  # launcher_orders <role> [feature] [gate]
+  local role="$1" f="${2:-}" g="${3:-}"
+  case "$role" in
+    director)
+      if [ -n "$f" ]; then
+        printf 'You are the director. Feature %s is underway — read docs/features/%s/ and the ledger, then drive it per your role. Begin now.' "$f" "$f"
+      elif [ -r "${ORCH_REPO:-.}/docs/features/_orch/request.md" ]; then
+        printf 'You are the director. Read docs/features/_orch/request.md — the run request. Decompose it into features (F00N-slug each, smallest shippable units, serial by default), record the decomposition with `orch decision record`, then drive each feature per your role: `orch feature start` with a per-feature --request, `orch spawn tech-lead`, tier confirmation by the human, `orch team start --feature`, gates via `orch audit`, merge only through the human gate. Begin now.'
+      else
+        printf 'You are the director. No run request is on record yet — the human starts features with `orch feature start`. When one exists, drive it per your role; check `orch team status` and the shared task list now, then stand by.'
+      fi ;;
+    tech-lead)
+      printf 'You are the tech-lead for %s. Begin now: read docs/features/%s/request.md, produce requirements.md, design.md and tasks.md per your role, then run `orch tier recommend %s <quick|standard|strict> --why "..."` so the human can confirm.' "$f" "$f" "$f" ;;
+    developer)
+      printf 'You are the developer for %s. Begin now: read docs/features/%s/requirements.md and tasks.md, claim your tasks, implement, and attest every result with `orch run --feature %s --label <label> -- <cmd>` — unattested claims are rejected.' "$f" "$f" "$f" ;;
+    test-engineer)
+      printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and write failing tests from it alone, then attest the red phase with `orch run --feature %s --label tests --claim fail`.' "$f" "$f" "$f" ;;
+    code-reviewer)
+      printf 'You are a code-reviewer for %s. Begin now: run `orch review scope %s` for your packet, review the diff through your assigned lens, and emit findings with `orch findings add`. You change nothing.' "$f" "$f" ;;
+    auditor)
+      printf 'You are the auditor for %s, gate `%s`. Begin now: read the ledger and artifacts under docs/features/%s/, verify every claim against attested evidence, then set the gate or raise findings. You exist for this gate only.' "$f" "${g:-work}" "$f" ;;
+    *)
+      printf 'You are %s%s. Read your role definition and the feature artifacts, then begin.' "$role" "${f:+ on $f}" ;;
+  esac
 }
 
 # The environment every session in the team must share. Emitted as KEY=VALUE
@@ -135,17 +174,27 @@ launcher_spawn() {
   local role="$1" name="$2" cwd="$3"; shift 3
   launcher_known_role "$role" || die "spawn: no such role '$role' (agents/$role.md does not exist)"
   [ -d "$cwd" ] || die "spawn: '$cwd' is not a directory"
-  if orch_lnch_spawn "$role" "$name" "$cwd" "$@"; then
-    # The print launcher starts nothing, so recording a spawn would put a
-    # session in the ledger that does not exist — and `orch report` would then
-    # attribute a feature's cost to an agent nobody ever ran.
-    if [ "$ORCH_LAUNCHER" = "print" ]; then
-      ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
-    else
-      ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
-    fi
-    return 0
-  fi
-  ledger_append agent.spawn_failed role "$role" name "$name" launcher "$ORCH_LAUNCHER"
-  return 1
+  orch_lnch_spawn "$role" "$name" "$cwd" "$@"
+  case $? in
+    0)
+      # The print launcher starts nothing, so recording a spawn would put a
+      # session in the ledger that does not exist — and `orch report` would
+      # then attribute a feature's cost to an agent nobody ever ran.
+      if [ "$ORCH_LAUNCHER" = "print" ]; then
+        ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
+      else
+        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
+      fi
+      return 0
+      ;;
+    3)
+      # Already running. Not a failure, and not a spawn either — logging
+      # agent.spawned again would put a session in the ledger twice.
+      return 0
+      ;;
+    *)
+      ledger_append agent.spawn_failed role "$role" name "$name" launcher "$ORCH_LAUNCHER"
+      return 1
+      ;;
+  esac
 }

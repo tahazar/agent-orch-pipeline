@@ -25,31 +25,31 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/gate-guard.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/gate-guard.sh", "timeout": 10 }
         ]
       },
       {
         "matcher": "SendMessage",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/audit-message.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/audit-message.sh", "timeout": 10 }
         ]
       },
       {
         "matcher": "Edit|Write|NotebookEdit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/write-scope.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/write-scope.sh", "timeout": 10 }
         ]
       },
       {
         "matcher": "TaskGet|TaskList|TaskUpdate",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/task-scope.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/task-scope.sh", "timeout": 10 }
         ]
       },
       {
         "matcher": "Read|Grep",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/artifact-scope.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/artifact-scope.sh", "timeout": 10 }
         ]
       }
     ],
@@ -58,13 +58,13 @@
       {
         "matcher": "SendMessage",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/audit-message.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/audit-message.sh", "timeout": 10 }
         ]
       },
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/health-probe.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/health-probe.sh", "timeout": 10 }
         ]
       }
     ],
@@ -73,7 +73,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/health-probe.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/health-probe.sh", "timeout": 10 }
         ]
       }
     ],
@@ -82,7 +82,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/health-probe.sh", "timeout": 10 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/health-probe.sh", "timeout": 10 }
         ]
       }
     ],
@@ -91,7 +91,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/task-guard.sh", "timeout": 15 }
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/orch-hooks/task-guard.sh", "timeout": 15 }
         ]
       }
     ]

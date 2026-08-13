@@ -116,6 +116,21 @@ for r in $ROLES; do
 done
 ok "six role definitions in .claude/agents/"
 
+# The hooks, same pattern. settings.json refers to
+# $CLAUDE_PROJECT_DIR/.claude/orch-hooks/, which this symlink satisfies on each
+# machine — so the committed settings stay portable while the hooks execute
+# from this checkout. Pointing settings at $CLAUDE_PROJECT_DIR/hooks/ was the
+# first-run bug this replaces: correct only when orch was installed into its
+# own repository, and silently absent everywhere else, which is an enforcement
+# layer that reports itself as wired and never fires.
+if [ -e "$REPO/.claude/orch-hooks" ] && [ ! -L "$REPO/.claude/orch-hooks" ]; then
+  die "$REPO/.claude/orch-hooks exists and is not a symlink — move it aside first"
+fi
+ln -sfn "$HERE/hooks" "$REPO/.claude/orch-hooks"
+[ -x "$REPO/.claude/orch-hooks/gate-guard.sh" ] \
+  || die ".claude/orch-hooks does not resolve to executable hooks — the enforcement layer would be silently absent"
+ok "hooks reachable at .claude/orch-hooks/"
+
 # Those symlinks point at wherever orch is checked out on THIS machine, so
 # committing them hands the next person six dangling paths. settings.json is a
 # different case: it refers to $CLAUDE_PROJECT_DIR, which Claude Code expands
@@ -123,7 +138,7 @@ ok "six role definitions in .claude/agents/"
 if ! grep -qs '^agents/$' "$REPO/.claude/.gitignore" 2>/dev/null; then
   {
     printf "# Symlinks into this machine's orch checkout. Not portable.\n"
-    printf 'agents/\n'
+    printf 'agents/\norch-hooks\n'
     printf '# Settings we backed up before merging, and per-developer overrides.\n'
     printf '*.orch-backup\nsettings.local.json\n'
   } >> "$REPO/.claude/.gitignore"
@@ -139,12 +154,20 @@ if [ -e "$SETTINGS" ]; then
   cp "$SETTINGS" "$SETTINGS.orch-backup"
   merged="$(jq -s '
     .[0] as $existing | .[1] as $orch
+    # Idempotent: strip every entry that is one of OURS before appending the
+    # current set, so re-running the install replaces stale orch wiring (old
+    # paths, superseded hooks) instead of stacking a second copy beside it.
+    # The project'"'"'s own hooks are untouched — the filter matches our hook
+    # basenames, nothing else.
+    | ("(gate-guard|audit-message|write-scope|task-scope|artifact-scope|health-probe|task-guard)\\.sh$") as $ours
+    | ($existing.hooks // {}
+       | with_entries(.value = (.value
+           | map(.hooks = (.hooks // [] | map(select((.command // "" | test($ours)) | not))))
+           | map(select(.hooks | length > 0))))
+       | with_entries(select(.value | length > 0))) as $clean
     | $existing
-    # Hooks merge per event, appending ours to whatever is already there, so a
-    # project that already hooks PostToolUse keeps its own.
-    | .hooks = (($existing.hooks // {}) * {} | . as $h
-        | reduce ($orch.hooks | keys[]) as $ev ($h;
-            .[$ev] = (($h[$ev] // []) + ($orch.hooks[$ev]))))
+    | .hooks = (reduce ($orch.hooks | keys[]) as $ev ($clean;
+        .[$ev] = (($clean[$ev] // []) + ($orch.hooks[$ev]))))
     | .crossSessionInbound = ($orch.crossSessionInbound)
   ' "$SETTINGS" "$ORCH_SETTINGS")" || die "could not merge settings"
   printf '%s\n' "$merged" > "$SETTINGS"
