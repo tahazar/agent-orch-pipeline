@@ -1,131 +1,146 @@
 # Provenance
 
 Every design decision in this repository that rests on an outside result cites
-it here by tag. The tags are referenced from `orch/`, from the v1 `pipeline`
-prompts, and from the overhaul specification.
+it here by tag. The code references these tags in comments.
 
-## Status of this file — read this first
+## How to read this file
 
-**This file was reconstructed, and most of it is incomplete.**
+Each entry carries a status:
 
-The overhaul specification names `docs/PROVENANCE.md` as an existing companion
-document and instructs §16 to *append* to it. No such file was present in this
-repository at any commit; neither were the companion documents
-`AUDIT-agent-orch-pipeline.md` and `UPGRADE-agent-orch-pipeline.md`. What
-follows is therefore built from the claims as the specification states them,
-not from the sources.
+| status | means |
+|---|---|
+| **verified** | the source was located and the figure checked against it |
+| **partial** | the source was located; some figures matched, others could not be found in it |
+| **unverified** | no source located. The figure is recorded so the code acting on it can be traced, and nothing more |
 
-Consequently:
+An **unverified** entry is not evidence. It is a marker saying which number a
+piece of this system was built on, so that when someone checks it and finds it
+wrong, every place it leaked into the design can be found.
 
-- **[P35] is first-hand.** It was verified empirically against the installed
-  CLI on the date recorded below, by the commands shown. Every line of it can
-  be re-run.
-- **[P20] and [P9]** carry the bibliographic detail the specification supplies
-  verbatim. They have not been checked against the papers.
-- **Everything else is a claim with no citation.** The specification quotes
-  figures for each; the figures are recorded here so the code that acts on them
-  can be traced to *something*, and each is marked `CITATION MISSING`.
-
-A `CITATION MISSING` entry is not evidence. It is a placeholder that says which
-number a piece of this system was built on, so that the day someone checks it
-and finds it wrong, they can find every place it leaked into the design. Do not
-cite this file outward until the missing entries are restored from the
-companion document or replaced with real sources.
-
-If you are restoring this file: the tags below are load-bearing. `orch/` and
-the v1 prompts reference them by number, and `orch/test/` does not check them.
+**The most important thing in this file is the scope note on [P20].** It is the
+result the entire escalation ladder is built on, and it does not say what this
+repository once claimed it said.
 
 ---
 
-## [P35] Claude Code substrate — verified first-hand
+## Scope: what the evidence actually covers
 
-**Verified 2026-08-12 against `claude 2.1.228` (Claude Code)**, on Linux, by
-inspecting the running process and the installed binary. This is the only entry
-in this file that was not taken on trust, and it is the one most likely to rot:
-these are internals, and §17 of the specification requires re-verification
-before relying on them.
+Almost every result below is from **multi-hop question answering or
+mathematical reasoning**, on models that are not frontier coding agents. This
+pipeline does software engineering with tools. The gap is not a technicality:
 
-Confirmed present and behaving as described:
+- [P20]'s authors write that they "focus on text-only multi-hop reasoning; MAS
+  advantages with tools/vision or safety constraints are out of scope."
+- [P11] is Omni-MATH.
+- [P12] and [P13] are reasoning and error-detection tasks.
+
+So the honest summary is: **the shape of the control law is borrowed; none of
+its constants are.** Every threshold in `lib/health.sh` and `lib/escalate.sh`
+is ours, and unvalidated. `orch lab` exists to replace them with measurements.
+
+There is also evidence pointing the other way that this file previously omitted.
+Anthropic's own Research system — a lead agent with 3–5 parallel subagents —
+[outperformed single-agent Claude Opus 4 by 90.2%][anthropic-research] on
+research tasks, at roughly 15× the tokens. That is not matched-budget, which is
+precisely the confound [P20] criticises, but it is a real deployed result on a
+tool-using task where multi-agent won decisively. A summary of the literature
+that cites only [P20] is selective.
+
+The defensible reading of both together is a **task-shape rule, not a ranking**:
+orchestration pays when work decomposes into independently explorable parallel
+subtasks over a wide search space, and loses on a single dependent reasoning
+chain. That is why `orch` starts cheap, escalates on evidence, and reaches for
+best-of-N — genuinely parallel, no shared state — before it reaches for
+anything that requires agents to agree.
+
+[anthropic-research]: https://www.anthropic.com/engineering/built-multi-agent-research-system
+
+---
+
+## [P35] Claude Code substrate — **verified**, first-hand
+
+**Verified 2026-08-12 against `claude 2.1.228`**, re-checked 2026-08-13 against
+`2.1.229`, by inspecting the running process and the installed binary. These
+are internals and they will rot; re-verify before relying on them.
 
 | Fact | How it was checked |
 |---|---|
-| Session registry at `~/.claude/sessions/<pid>.json`, mode 0644, carrying `pid`, `sessionId`, `cwd`, `startedAt`, `procStart`, `version`, `peerProtocol`, `kind`, `entrypoint`, `messagingSocketPath`, `name`, `nameSource` | read the live file |
+| Session registry at `~/.claude/sessions/<pid>.json` carrying `pid`, `sessionId`, `cwd`, `startedAt`, `procStart`, `version`, `peerProtocol`, `kind`, `entrypoint`, `messagingSocketPath`, `name`, `nameSource` | read the live file |
 | Per-session key at `~/.claude/sessions/<pid>.<sha256>.key`, mode 0600 | `ls -l` |
-| Per-session Unix socket at `/tmp/cc-socks/<pid>.sock`, mode `srw-------` | `ls -l /tmp/cc-socks` |
-| `CLAUDE_CODE_MESSAGING_SOCKET` exported into the session environment | `env` |
+| Per-session Unix socket at `/tmp/cc-socks/<pid>.sock`, mode `srw-------` | `ls -l` |
 | `claude agents --json` returns the roster without a TTY | ran it |
-| Shared task list at `~/.claude/tasks/<id>/` with `N.json` per task **and a zero-byte `.lock`** | created a task, inspected the directory |
-| Task `metadata` round-trips verbatim | created a task with metadata, read the file |
-| `CLAUDE_CODE_TASK_LIST_ID` selects the directory | present in the binary's settings surface |
+| Shared task list at `~/.claude/tasks/<id>/` with `N.json` per task and a zero-byte `.lock` | created a task, inspected the directory |
+| `CLAUDE_CODE_TASK_LIST_ID` selects the directory | binary's settings surface |
 | `crossSessionInbound` accept/hold/refuse | present in the binary |
-| `dialogExpiry` — enum `60s` / `5m` / `10m` / `never`, **default 5m**, governing "how long a HELD cross-session message awaits approval before it resolves to its safe no-action default (dropped-with-denial)" | the setting's own description string in the binary |
-| `isolation: "worktree"` on agent definitions | present in the binary |
-| `disallowedTools` on agent definitions | present in the binary |
-| Hook events `PostToolUseFailure` ("Run after tool fails"), `PostCompact`, `TaskCompleted`, `TaskCreated`, `TeammateIdle` | the binary's hook-event table |
-| `stop_hook_active` — "return success while it's true" | the binary's own guidance string |
-| Agent teams gated behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | present in the binary |
+| `dialogExpiry` — enum `60s`/`5m`/`10m`/`never`, **default 5m** | the setting's own description string |
+| `isolation: "worktree"` and `disallowedTools` on agent definitions | present in the binary |
+| Hook events `PostToolUseFailure`, `PostCompact`, `TaskCompleted`, `TaskCreated`, `TeammateIdle` | the binary's hook-event table |
+| `claude --agent <name>`, `-n/--name`, `--bg`, `--permission-mode` | `claude --help` |
 
-**Two corrections to the specification's §1, found while verifying:**
+**Three corrections to the specification, found while verifying:**
 
-1. **The declarative hook `if` field does not exist.** §6.2 calls for
-   `"if": "Bash(git merge*)"` to pre-filter a hook without spawning a process.
-   The settings validator in 2.1.228 states hooks "must be an object mapping
-   event names to matcher arrays" carrying "hookCallbackIds arrays and string
-   matchers", and no if-condition appears anywhere in the binary. `orch`
-   narrows by `matcher` and does the command match inside the hook instead.
-   Same correctness, one extra short-lived process per Bash call.
+1. **The declarative hook `if` field does not exist.** The settings validator
+   states hooks map event names to matcher arrays carrying string matchers, and
+   no if-condition appears in the binary. `orch` narrows by `matcher` and does
+   the command match inside the hook.
 
-2. **The session roster does not report permission mode.** §1 requires every
-   session in a team to share a permission-mode class, and `orch doctor` has to
-   check it — but `claude agents --json` returns only
-   `pid`/`cwd`/`kind`/`startedAt`/`sessionId`/`name`, and the session registry
-   does not carry the mode either. `orch` recovers the class from the process
-   arguments via `ps`, and reports `unknown` rather than guessing when it
-   cannot: a wrong class would produce a confident all-clear for exactly the
-   failure the check exists to catch.
+2. **The roster does not report permission mode.** `claude agents --json`
+   returns `pid`/`cwd`/`kind`/`startedAt`/`sessionId`/`name`/`status` only.
+   `orch doctor` recovers the class from process arguments and reports
+   `unknown` rather than guessing — a wrong class would produce a confident
+   all-clear for exactly the failure the check exists to catch.
 
-Minor drift from the schema as §1 states it: the live registry file also
-carries `updatedAt`, and `entrypoint` takes values beyond `remote_cowork`
-(`remote` was observed). Neither affects anything orch does.
+3. **`--settings` is documented as taking one file.** Whether it is repeatable
+   is unstated, so `orch` does not depend on it: hook wiring goes into the
+   project's `.claude/settings.json` at install time, and only the per-role
+   permission file is passed on the command line.
 
-Not verified first-hand, and still taken from the specification: that macOS
-verifies socket ownership only while the posting child process lives; that
-Linux verification survives the process exiting; that a container running as
-PID 1 cannot verify it at all; that agent teams give teammates no worktree
-isolation; that workflows cannot pause for mid-run human sign-off. The `orch`
-checks for these exist and are wired, but the underlying platform behaviour was
-not reproduced here.
+Not verified first-hand, still taken on trust: that macOS verifies socket
+ownership only while the posting child process lives; that Linux verification
+survives the process exiting; that a container running as PID 1 cannot verify
+it at all.
 
 ---
 
-## [P20] Matched-budget ablation of multi-agent topologies
+## [P20] Matched-budget ablation — **verified**, and narrower than it looks
 
-> Tran & Kiela (Stanford), arXiv:2604.02460, 2 Apr 2026 — as cited by the
-> overhaul specification, §16. **Not verified against the paper.**
+> Tran, D. & Kiela, D. *Single-Agent LLMs Outperform Multi-Agent Systems on
+> Multi-Hop Reasoning Under Equal Thinking Token Budgets.* Stanford.
+> [arXiv:2604.02460](https://arxiv.org/abs/2604.02460), 2 Apr 2026 (rev. 11 Apr).
 
-Thinking tokens held constant at 100 / 500 / 1k / 2k / 5k / 10k across
-single-agent versus sequential, subtask-parallel, parallel-roles, debate, and
-ensemble topologies. Single-agent matched or beat multi-agent throughout.
-Multi-agent overtook **only at ~70% deliberate context degradation**.
+**Checked against the paper.** Single-agent matched or beat multi-agent across
+five topologies (sequential, subtask-parallel, parallel-roles, debate,
+ensemble) at every thinking-token budget tested.
 
-**Where this lands in the code:** the entire escalation ladder
-(`orch/lib/escalate.sh`), and specifically `ORCH_T_CONTEXT_PCT=70` in
-`orch/lib/health.sh`, which is this result's threshold used literally. It is
-also why rung 0 is the default and why `orch report` measures
-`escalation_precision` rather than assuming orchestration helped.
+| what the paper is | what it is not |
+|---|---|
+| FRAMES and MuSiQue (4-hop), text-only QA | any coding or software-engineering task |
+| Qwen3-30B, DeepSeek-R1-Distill-Llama-70B, Gemini 2.5 Flash/Pro | any frontier agentic coding model |
+| tools explicitly out of scope, per the authors | evidence about tool-using agents |
 
-Also cited for: no published controlled ablation of orchestrated versus solo
-agents on a *coding* task at matched budget — every matched-budget study is
-reasoning or math, and cross-scaffold SWE-bench comparison is unsound by the
-maintainers' own admission. This is the gap `orch report --ablation` exists to
-fill.
+**The crossover, stated precisely.** Multi-agent overtakes under *masking* at
+α=0.7 — **70% of context tokens substituted with misleading content.** That is
+corruption, not occupancy.
 
-## [P9] MAST — multi-agent system failure taxonomy
+**Where this went wrong here.** `ORCH_T_CONTEXT_PCT=70` in `lib/health.sh` was
+commented as "[P20]'s literal condition" while measuring how *full* the context
+window is. A window 70% full of correct information has nothing to do with one
+70% poisoned. The threshold stays at 70 but is now documented as ours and
+unvalidated, justified only as a leading indicator of imminent compaction —
+and compaction is the signal that actually matters.
 
-> As cited by the overhaul specification, §16. **Not verified against the
-> paper.**
+**What [P20] legitimately supports:** starting cheap and escalating on evidence
+of degradation; measuring that condition rather than assuming it; and the
+methodological point that comparing a single agent against a multi-agent system
+using far more compute proves nothing.
 
-Failure-mode frequencies, used directly as detector thresholds:
+---
+
+## [P9] MAST — **verified**
+
+> Cemri, M., Pan, M. Z., Yang, S., et al. *Why Do Multi-Agent LLM Systems
+> Fail?* [arXiv:2503.13657](https://arxiv.org/abs/2503.13657).
+> 14 failure modes, 1600+ annotated traces, 7 MAS frameworks.
 
 | Failure mode | Frequency | Used in |
 |---|---|---|
@@ -135,99 +150,130 @@ Failure-mode frequencies, used directly as detector thresholds:
 | incomplete verification | 8.2% | the attested-gate design |
 | task derailment | 7.4% | — |
 
-Step repetition being the single most frequent failure is why it is the cheapest
-signal in `orch/lib/health.sh` and why it fires at three occurrences rather than
-at some larger, safer-feeling number.
-
-Also cited for: gates should block via a hook returning exit 2, not by prompt
-instruction.
+Step repetition being the most frequent single mode is why it is the cheapest
+signal in `lib/health.sh`. The threshold of 3 is ours.
 
 ---
 
-## Claims carried without citation
+## [P11] Reviewer precision ≠ critique uptake — **verified**
 
-Each entry records the figure the specification states and the place in this
-repository that acts on it. **All are `CITATION MISSING`.**
+> *Precise but Uncoupled: Reviewer Precision Does Not Guarantee Critique Uptake
+> in Multi-Agent Math Reasoning.*
+> [arXiv:2607.15388](https://arxiv.org/abs/2607.15388). 4,181 verifier-grounded
+> Omni-MATH problems.
 
-- **[P1]** — `CITATION MISSING`. Anthropic's documented remedy for anchoring in
-  sequential investigation is parallel competing-hypothesis debugging. Also:
-  a hook returning exit 2 outranks in-prompt instruction in Claude Code's own
-  gate-strength ranking. *Acts on:* `orch/lib/diagnose.sh`, all four gate hooks.
+The planner-executor-reviewer protocol had the better reviewer (precision 0.861
+vs 0.644) and the worse outcome, because its solver acted on verified-useful
+critique **33.6%** of the time against broadcast's **93.5%**.
 
-- **[P2]** — `CITATION MISSING`. Reviewers should get fresh context and see only
-  the diff plus criteria, never the developer's trace. *Acts on:* invariant 3,
-  `orch/agents/code-reviewer.md`.
+Two findings this repository acts on directly:
 
-- **[P3]** — `CITATION MISSING`. A 15× cost multiplier for multi-agent
-  orchestration, later revised down. *Acts on:* the comparison line in
-  `orch report --ablation`.
+- Embedding reviewer guidance in the solver's working context **partially**
+  improves follow-through and **does not close the gap**. `lib/findings.sh`
+  inlines finding text verbatim for this reason — it is the best lever
+  available, not a fix.
+- **Forcing explicit acknowledgment lowered final accuracy.** Nothing in orch
+  makes an agent restate a finding back at anyone.
 
-- **[P4]** — `CITATION MISSING`. Revised multiplier of 3–10×. *Acts on:* the
-  same comparison line; also cited for "the cheapest path is the default".
+A previous version of this file claimed inline delivery "recovered most of the
+loss". The paper does not say that.
 
-- **[P5]** — `CITATION MISSING`. Code-reviewer context isolation; gate strength
-  ranking. *Acts on:* invariant 3, `orch/settings.json`.
+*Scope: math reasoning, not code review.*
 
-- **[P6] [P7]** — `CITATION MISSING`. Every gate backed by an external oracle.
-  *Acts on:* invariant 6, `orch/lib/evidence.sh`.
+---
 
-- **[P8]** — `CITATION MISSING`. On a 2026 code-review agent benchmark,
-  individual tools caught 20–32% of defects while the union of four different
-  ones reached 41.5%, with 84% of emitted comments judged useful. *Acts on:* the
-  heterogeneous code-reviewer ensemble; the union assertion in
-  `orch/test/findings.test.sh`.
+## [P8] Code review agent benchmark — **verified**
 
-- **[P10]** — `CITATION MISSING`. Calibrated ensembles of diverse weak verifiers
-  beat single judges by 13–18 points; a single LM judge produces "noisy, biased,
-  and poorly calibrated scores". *Acts on:* why the ensemble is
-  (model × lens) diverse rather than N copies of one code-reviewer.
+> Code Review Agent Benchmark, 234 tests across four agentic review tools.
 
-- **[P11]** — `CITATION MISSING`. A pipeline whose code-reviewer had better precision
-  (0.861 vs 0.644) produced worse outcomes (85.2% vs 89.2%), because the solver
-  acted on verified-useful critique only **33.6%** of the time; injecting
-  guidance into the solver's working context recovered most of the loss.
-  *Acts on:* `orch/lib/findings.sh` in its entirety — verbatim inline delivery,
-  and `critique_uptake_rate` printed against 33.6% in every report.
+Individual tools passed **20.1%–32.1%**; the union of all four reached
+**41.5%** (97/234). Human reviewers pass 100%.
 
-- **[P12]** — `CITATION MISSING`. Debate raised inter-agent consensus from 81.7%
-  to 90.1% while accuracy fell — worst case 48.3% → 20.7% — with sycophancy to
-  85.5% and correct reasoning discarded at up to 32.3 points. *Acts on:*
-  invariant 5; `orch/agents/auditor.md`.
+Note what this actually shows: the union beats any single tool, *and* the best
+available ensemble still misses most defects. It argues for running more than
+one lens. It does not argue that the reviewers are good.
 
-- **[P13]** — `CITATION MISSING`. Competitive debate is provably cheap talk,
-  underperforming a single agent by up to 15 points on error detection.
-  *Acts on:* the same.
+*Acts on:* the reviewer ensemble at tier `standard` and above, the union
+assertion in `test/findings.test.sh`, and the independence requirement enforced
+by `hooks/task-scope.sh` — the union result holds only while the lenses are
+independent.
 
-- **[P14]** — `CITATION MISSING`. Four of eight notable 2025 orchestration tools
-  are dead. *Acts on:* the honesty discipline in the README — delete what shows
-  no yield, and say so.
+---
 
-- **[P16]** — `CITATION MISSING`. Reducing agent specs from ~1,000 to ~200 lines
-  reported as an improvement. *Acts on:* the prompt-budget ceilings enforced in
-  `orch/test/agent-lint.sh`.
+## [P3] [P4] Cost multiplier — **partial**
 
-- **[P17]** — `CITATION MISSING`. 80+ agents unanimously endorsed a non-existent
-  padding oracle in OpenSSL; one empirical test killed it. *Acts on:* invariant
-  5, adjudication by experiment, and the rule that two simultaneously-held
-  predictions in `orch/lib/diagnose.sh` escalate rather than get a tiebreak.
+Anthropic reports standalone agents at roughly **4×** the tokens of a chat
+interaction and multi-agent runs at roughly **15×**
+([source][anthropic-research]). The "revised down to 3–10×" figure [P4] that
+`orch lab ablation` prints for comparison could not be located and is
+**unverified**.
 
-- **[P18]** — `CITATION MISSING`. SWE-bench Verified 20.6% → 28.8% at Best@8 →
-  32.0% at Best@16, with the verifier picking correctly ~86% of the time —
-  meaning generation diversity, not verification, was the binding constraint.
-  *Acts on:* rung 3; specifically why `orch/lib/candidates.sh` seeds three
-  genuinely different approach directives rather than three temperatures.
+---
 
-- **[P21] [P22] [P23]** — `CITATION MISSING`. No architecture consistently wins
-  [P21]; agents can be "100x more expensive while only being 1% better" [P22];
-  the Pareto-winning harness on a multi-million-line codebase used 3× less
-  context and simpler prompts [P23]. *Acts on:* invariant 8, the prompt budget,
-  and the rejection of "more roles" as an answer to poor output.
+## [P18] Best-of-N on SWE-bench — **partial**
 
-- **[P25]** — `CITATION MISSING`. The blackboard pattern. *Acts on:* the
-  `docs/features/**` artifact contract, carried unchanged from v1.
+The claimed trajectory (20.6% → 28.8% at Best@8 → 32.0% at Best@16, verifier
+correct ~86% of the time) could not be matched to a single source. Adjacent
+published work supports the shape: Best@K on SWE-bench Verified improves
+substantially with rollouts before plateauing (execution-based and
+execution-free verifiers converging around 43.7% and 42.8%), and sampling
+diversity is repeatedly identified as the binding constraint rather than
+verification.
 
-- **[P30]** — `CITATION MISSING`. Code-reviewer context isolation. *Acts on:*
-  invariant 3.
+*Acts on:* rung 3, and specifically why `lib/candidates.sh` seeds three
+genuinely different approach directives rather than three temperatures. The
+design rationale survives; the exact numbers should not be quoted.
+
+---
+
+## [P12] [P13] Debate — **unverified**
+
+Recorded figures: debate raised inter-agent consensus from 81.7% to 90.1% while
+accuracy fell (worst case 48.3% → 20.7%), sycophancy to 85.5%, correct
+reasoning discarded at up to 32.3 points [P12]; competitive debate as cheap
+talk, underperforming a single agent by up to 15 points on error detection
+[P13].
+
+**No source located for these numbers.** Real work on the same failure mode
+exists — sycophancy propagation in multi-agent debate, and controlled studies
+finding isolated self-correction beating unguided homogeneous debate — and
+[P20] independently found debate among the topologies that did not beat a
+single agent.
+
+*Acts on:* invariant 5 and `agents/auditor.md` — conflicts are settled by
+running an experiment, never by a vote. The direction is well-supported even
+though these figures are not.
+
+---
+
+## Claims still carried without a source — **unverified**
+
+Each records the figure the specification stated and the place that acts on it.
+
+- **[P1]** Parallel competing-hypothesis debugging as the remedy for anchoring;
+  a hook returning exit 2 outranks in-prompt instruction. *Acts on:*
+  `lib/diagnose.sh`, all five gate hooks.
+- **[P2] [P5] [P30]** Reviewers should get fresh context and see only the diff,
+  never the builder's trace. *Acts on:* invariant 3, `agents/code-reviewer.md`,
+  `hooks/task-scope.sh`.
+- **[P6] [P7]** Every gate backed by an external oracle. *Acts on:* invariant 6,
+  `lib/evidence.sh`.
+- **[P10]** Calibrated ensembles of diverse weak verifiers beat single judges by
+  13–18 points. *Acts on:* why the ensemble is (model × lens) diverse rather
+  than N copies of one reviewer.
+- **[P14]** Four of eight notable 2025 orchestration tools are dead. *Acts on:*
+  the delete-what-shows-no-yield discipline.
+- **[P16]** Reducing agent specs from ~1,000 to ~200 lines reported as an
+  improvement. *Acts on:* the prompt budget in `test/agent-lint.sh`.
+- **[P17]** 80+ agents unanimously endorsed a non-existent padding oracle in
+  OpenSSL; one empirical test killed it. *Acts on:* invariant 5, and the rule
+  that two simultaneously-held predictions escalate rather than get a tiebreak.
+- **[P21] [P22] [P23]** No architecture consistently wins; agents can be "100x
+  more expensive while only being 1% better"; the Pareto-winning harness used 3×
+  less context and simpler prompts. *Acts on:* invariant 8 and the rejection of
+  "more roles" as an answer to poor output.
+- **[P25]** The blackboard pattern. *Acts on:* the `docs/features/**` artifact
+  contract.
 
 ---
 
@@ -238,10 +284,9 @@ claude --version
 claude agents --json
 ls -l ~/.claude/sessions/ /tmp/cc-socks/
 ls -l ~/.claude/tasks/*/            # after any session creates a task
-env | grep CLAUDE_CODE_MESSAGING_SOCKET
-orch doctor                         # checks the operational constraints
+orch doctor
 ```
 
-`orch doctor` warns when the installed CLI is not the version this file records,
-because a from-memory model of another program's internals is the most likely
-failure point in this build.
+`orch doctor` warns when the installed CLI is not the version recorded in
+`lib/common.sh`, because a from-memory model of another program's internals is
+the most likely failure point in this build.

@@ -25,10 +25,12 @@ payload="$(cat 2>/dev/null)"
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""' 2>/dev/null)"
 [ -n "$cmd" ] || exit 0
 
-# The declarative `if` field in settings.json pre-filters with permission-rule
-# syntax, so this process is not even spawned for unrelated Bash calls. The
-# match below is the belt to that braces: a hook wired by hand, or an `if` that
-# a future settings schema drops, must still be correct on its own.
+# There is no declarative pre-filter to lean on. The specification called for an
+# `if` field taking permission-rule syntax, so an unrelated Bash call would
+# never spawn this process — but that field does not exist in the CLI (see
+# [P35] in docs/PROVENANCE.md). The matcher in settings.json narrows to the
+# Bash tool and the match below does the rest, which costs one short-lived
+# process per Bash call and is otherwise identical.
 case "$cmd" in
   *"git merge"*|*"git push"*|*"gh pr create"*) ;;
   *) exit 0 ;;

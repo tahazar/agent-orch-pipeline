@@ -1,11 +1,18 @@
 #!/bin/bash
 # findings.sh - review findings and critique uptake.
 #
-# The highest-expected-value single mechanism in the pipeline. A pipeline
-# whose reviewer had strictly better precision (0.861 vs 0.644) produced worse
-# outcomes (85.2% vs 89.2%), because the solver acted on verified-useful
-# critique only 33.6% of the time; injecting the guidance into the solver's
-# working context recovered most of the loss [P11].
+# Reviewer quality and critique uptake are separable, and uptake is the half
+# that gets ignored. In [P11] the protocol whose reviewer had strictly better
+# precision (0.861 vs 0.644) still produced worse outcomes, because its solver
+# acted on verified-useful critique only 33.6% of the time against the other's
+# 93.5%. Finding the defect and getting it fixed are different problems.
+#
+# Two things that paper is careful about, and so is this file:
+#   - embedding the guidance in the solver's working context improves
+#     follow-through PARTIALLY. It does not close the gap. Inline delivery is
+#     the best lever available here, not a solved problem.
+#   - forcing the solver to explicitly acknowledge critique LOWERED accuracy,
+#     which is why nothing here makes an agent restate a finding back.
 #
 # Two consequences run through this file:
 #   1. delivery inlines the finding text verbatim into the developer's next turn.

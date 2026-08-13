@@ -1,12 +1,18 @@
 #!/bin/bash
 # health.sh - the degradation detector.
 #
-# This is the sensor for the control law in §4. The matched-budget ablation
-# [P20] found single-agent matched or beat multi-agent at every thinking-token
-# budget tested across five topologies and four models, and multi-agent
-# overtook only when context was deliberately corrupted to ~70%. Read plainly,
-# orchestration is worth its cost exactly when the solo agent's context is
-# already degraded. So orch measures that condition instead of assuming it.
+# The sensor for the control law. The matched-budget ablation [P20] found
+# single-agent matched or beat multi-agent at every thinking-token budget it
+# tested, and multi-agent overtook only once the single agent's context was
+# deliberately corrupted. Read plainly, orchestration earns its cost when the
+# solo context has degraded — so orch measures that condition instead of
+# assuming it.
+#
+# Read the scope note in docs/PROVENANCE.md before treating any threshold here
+# as derived. [P20] is multi-hop question answering on non-frontier models and
+# its authors put tool-using work explicitly out of scope, so it tells us the
+# SHAPE of the control law and none of its constants. The numbers below are
+# ours, and they are guesses until `orch lab` says otherwise.
 #
 # Every signal here is mechanical. None costs a model call. That matters: a
 # detector that needs an LLM to decide whether to spend LLM budget has already
@@ -20,9 +26,21 @@ ORCH_HEALTH_SOURCED=1
 # shellcheck source=evidence.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/evidence.sh"
 
-# Thresholds. Defaults are the numbers §4.1 argues for; each is overridable so
-# `escalation_precision` can actually be tuned rather than merely reported.
-: "${ORCH_T_CONTEXT_PCT:=70}"       # [P20]'s literal condition
+# Thresholds. Every one is overridable, because `escalation_precision` exists
+# to tune them rather than to admire them.
+#
+# ORCH_T_CONTEXT_PCT measures how FULL the context window is. It does not
+# measure corruption, and the distinction matters enough to spell out: [P20]'s
+# crossover is at alpha=0.7, meaning 70% of context tokens replaced with
+# MISLEADING content. A window that is 70% full of correct information is not
+# that situation and is not evidence of anything. This threshold was previously
+# commented as "[P20]'s literal condition", which was a straight
+# misapplication — the same number attached to a different quantity.
+#
+# It stays, at the same value, on its own weaker footing: a nearly-full window
+# is where compaction becomes imminent, and compaction is the real signal. Treat
+# it as a leading indicator of that, not as a result borrowed from a paper.
+: "${ORCH_T_CONTEXT_PCT:=70}"       # ours, unvalidated; see the note above
 : "${ORCH_T_REPETITION:=3}"         # MAST's most frequent failure mode, 15.7% [P9]
 : "${ORCH_T_FAILURE_PCT:=25}"
 : "${ORCH_T_FAILURE_WINDOW:=20}"
@@ -93,7 +111,8 @@ health_signals() {  # health_signals <feature>
       else [] end')"
   sigs="$(_hs_merge "$sigs" "$add")"
 
-  # context_pressure - the literal [P20] condition.
+  # context_pressure - how full the window is. NOT [P20]'s corruption
+  # condition; see the threshold note above.
   add="$(printf '%s' "$obs" | _hs context_pressure '
     ([.[] | select(.kind=="context") | (.pct|tonumber?) // 0] | max // 0) as $m
     | if $m > $t
