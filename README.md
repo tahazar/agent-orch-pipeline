@@ -255,28 +255,55 @@ over SSH and from a phone.
 If a session dies, nothing is lost. Agents are stateless relative to their
 artifacts; respawn and it resumes from the recorded phase.
 
-## Does it help?
+## Knowing what it cost
 
-Honestly, nobody knows yet — including for this pipeline. That question needs a
-control, and a control means attempting each feature a second time, solo, from
-the same requirements. That doubles the bill, so it is opt-in and off the normal
-path:
+Every run records itself. `orch report` reads the ledger and the session
+transcripts and tells you what actually happened:
 
 ```bash
-orch lab baseline F001-csv-parser -- npm test   # solo attempt; merges nothing
+orch report                    # per feature: cost, wall clock, tier
+orch findings yield --all      # which review lenses are finding real defects
+```
+
+| what it tells you | why you want it |
+|---|---|
+| output tokens and wall clock, per feature and per tier | whether `strict` is earning its extra sessions |
+| gate yield — how often each gate actually blocked something | a gate that never blocks is ceremony |
+| critique uptake | whether review findings are being acted on or waved through |
+| per-lens unique-find rate | which reviewers to keep |
+
+Every number comes from a recorded event or a transcript. Nothing here asks a
+model how much it spent, and where there is no data it says so rather than
+printing a zero.
+
+That is what makes the tuning knobs meaningful: the escalation thresholds in
+`lib/health.sh` are all overridable, and the report is how you find out which
+ones are set wrong for your codebase.
+
+### Going further: the ablation
+
+If you want to know not just what a run cost but whether the crew beat a single
+agent on the same work, there is a controlled comparison. It attempts a feature
+solo from the same `requirements.md`, in a throwaway worktree, and merges
+nothing:
+
+```bash
+orch lab baseline F001-csv-parser -- npm test   # the solo attempt
 orch lab ablation --all                         # the comparison
 ```
 
-Run it on every feature, not only the ones that escalated, or
-`escalation_precision` has no denominator.
+**This is off by default and stays off.** A control means doing each feature
+twice, so it roughly doubles the bill — worth it when you are deciding how to
+configure the pipeline, wasteful as a standing cost. `orch report` says nothing
+about it unless you have run it.
 
-The published evidence is genuinely mixed, and [`DESIGN.md`](DESIGN.md) works
-through what it does and does not support — including the result this
-pipeline's ladder is built on, which is narrower than it is usually quoted as
-being.
+If you do run it, run it on every feature rather than only the ones that
+escalated, or `escalation_precision` has no denominator.
 
-The discipline that makes this worth showing: **if a tier, a lens, or a gate
-shows no unique yield after 20 features, delete it and say so.**
+The reasoning behind the ladder, the tiers and the reviewer ensemble — and the
+research each rests on — is in [`DESIGN.md`](DESIGN.md), along with the
+standing rule that keeps this honest: **if a tier, a lens, or a gate shows no
+unique yield after 20 features, delete it and say so.**
 
 ## Tests
 
