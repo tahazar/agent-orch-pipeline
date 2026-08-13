@@ -116,8 +116,13 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
     for kv in "$@"; do
       case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
     done
+    # send delivers text WITHOUT executing it — found live, when two crew
+    # panes sat one keypress from starting while the roster showed only the
+    # first agent. The Enter is its own call, and required.
     cmux send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null 2>&1 \
       || { warn "could not start $name in its pane"; return 1; }
+    cmux send-key --surface "$suuid" enter >/dev/null 2>&1 \
+      || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
   fi
 
   _cmux_map_put "$name" "$suuid" "$wsuuid" "$wst"
