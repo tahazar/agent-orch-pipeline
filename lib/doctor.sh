@@ -181,6 +181,25 @@ doctor_run() {
   else
     _d_bad "not installed in .claude/agents/:$missing — \`claude --agent\` cannot resolve them and the session silently comes up unroled. Run ./install.sh"
   fi
+  # And the hooks the settings wire must actually resolve. A hook at a path
+  # that does not exist fails non-blocking on every call — the enforcement
+  # layer reports itself as wired and never fires once, which is the worst
+  # available failure mode. This check runs the resolution the CLI will run.
+  if [ -r "$ORCH_REPO/.claude/settings.json" ]; then
+    dangling=''
+    for hc in $(jq -r '[.. | objects | select(.type=="command") | .command] | unique | .[]' \
+                  "$ORCH_REPO/.claude/settings.json" 2>/dev/null | grep 'orch-hooks\|/hooks/'); do
+      resolved="${hc//\$CLAUDE_PROJECT_DIR/$ORCH_REPO}"
+      [ -x "$resolved" ] || dangling="$dangling $(basename "$hc")"
+    done
+    if [ -z "$dangling" ]; then
+      _d_ok "every wired hook resolves to an executable file"
+    else
+      _d_bad "wired but unresolvable:$dangling — hooks fail non-blocking, so nothing is enforced and nothing says so. Run ./install.sh"
+    fi
+  else
+    _d_warn "no .claude/settings.json here — the hooks are not wired for sessions in this repo"
+  fi
 
   printf '\n%s failed, %s warned.\n' "$_D_FAIL" "$_D_WARN"
   [ "$_D_FAIL" = "0" ]
