@@ -48,6 +48,13 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch tier show <F>                   tier, recommendation, and crew, as JSON
   orch tier crew [F]                   the roles this feature spawns
 
+  orch team start [--feature F]        spawn the run, or a feature's crew
+  orch team status                     who is alive, and where
+  orch team stop [--all]               close the sessions orch started
+  orch spawn <role> [--feature F] [--suffix S] [--cwd D]
+  orch peek <name> [--lines N]         read a session's screen
+  orch kill <name>
+
   orch run --feature F --label L -- CMD…      attested execution
   orch evidence verify --feature F --label L [--claim pass|fail] [--fresh]
 
@@ -217,6 +224,75 @@ EOF
       show) tier_show "${1:-$(orch_current_feature)}" | jq '.' ;;
       crew) tier_crew "$(escalate_rung "${1:-$(orch_current_feature)}")"; printf '\n' ;;
       *) die "tier: expected recommend, confirm, show, or crew" ;;
+    esac
+    ;;
+
+  spawn)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    role="$(need "${1:-}" 'spawn: needs a role')"; shift 2>/dev/null || true
+    f="$(opt feature '' "$@")"
+    name="$(launcher_session_name "$role" "$(opt suffix '' "$@")")"
+    # Attributed explicitly. Falling through to orch_current_feature would bill
+    # a run-level session to whichever feature happened to be started last.
+    ORCH_LEDGER_FEATURE="${f:-_orch}" \
+      launcher_spawn "$role" "$name" "$(opt cwd "$ORCH_REPO" "$@")" \
+        $(launcher_env "$role" "$f")
+    ;;
+
+  peek)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    launcher_peek "$(need "${1:-}" 'peek: needs a session name')" "$(opt lines 60 "$@")"
+    ;;
+
+  kill)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    launcher_kill "$(need "${1:-}" 'kill: needs a session name')"
+    ;;
+
+  team)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    . "$ORCH_HOME/lib/tier.sh"
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        f="$(opt feature '' "$@")"
+        if [ -z "$f" ]; then
+          # The run, not a feature. These two outlive every feature, so they
+          # are started once and never sized by a tier.
+          for r in director auditor; do
+            ORCH_LEDGER_FEATURE=_orch \
+              launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
+                $(launcher_env "$r") || true
+          done
+          printf '\nThe run is up. Start a feature next:\n'
+          printf '  orch feature start F001-<slug>\n'
+        else
+          orch_valid_feature "$f" || die "team start: '$f' is not a valid feature id"
+          tier_is_confirmed "$f" || die "team start: $f has no confirmed tier, so there is no crew to size.
+  orch tier recommend $f <$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')> --why \"...\"
+  orch tier confirm $f"
+          crew="$(tier_crew "$(escalate_rung "$f")")"
+          [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
+          for r in $crew; do
+            ORCH_LEDGER_FEATURE="$f" \
+              launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
+                $(launcher_env "$r" "$f") || true
+          done
+          printf '\ncrew up for %s at tier `%s`.\n' "$f" "$(tier_current "$f")"
+        fi
+        ;;
+      status)
+        printf 'launcher: %s\n' "$(launcher_name)"
+        printf '\nstarted by orch:\n'
+        launcher_list | sed 's/^/  /' | grep . || printf '  (none)\n'
+        printf '\nregistered with the platform:\n'
+        substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  \(.status // "?")  \(.cwd)" end'
+        ;;
+      stop)
+        for n in $(launcher_list); do launcher_kill "$n" || true; done
+        ;;
+      *) die "team: expected start, status, or stop" ;;
     esac
     ;;
 

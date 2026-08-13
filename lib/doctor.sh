@@ -148,6 +148,40 @@ doctor_run() {
     && _d_ok "git worktrees available (rung 3 needs them)" \
     || _d_bad "git worktree is unavailable — best-of-N cannot isolate candidates, so rung 3 must not run"
 
+  # --- launcher -----------------------------------------------------------
+  printf '\nlauncher:\n'
+  . "$ORCH_HOME/lib/launcher/base.sh"
+  lp="$(launcher_probe 2>/dev/null)"
+  lname="$(printf '%s' "$lp" | jq -r '.launcher // "?"')"
+  case "$lname" in
+    cmux)
+      if [ "$(printf '%s' "$lp" | jq -r '.reachable')" = "true" ]; then
+        _d_ok "cmux — sessions are persistent, named, and watchable ($(printf '%s' "$lp" | jq -r '.version'))"
+      else
+        _d_bad "cmux is on PATH but its socket is not answering; \`orch spawn\` will fail. Start cmux, or set ORCH_LAUNCHER=bg"
+      fi
+      ;;
+    bg)
+      _d_warn "no cmux — falling back to \`claude --bg\`. Sessions run headless: \`orch peek\` cannot show you one and \`orch kill\` cannot stop one"
+      ;;
+    print)
+      _d_warn "no cmux and no claude on PATH — \`orch spawn\` will print commands rather than run them"
+      ;;
+  esac
+  # Agent definitions have to be installed where the CLI looks for them, or
+  # --agent resolves to nothing and the session comes up as a plain assistant
+  # with none of the role's tool restrictions. That failure is silent, which is
+  # why it is checked here rather than discovered mid-run.
+  missing=''
+  for r in director tech-lead test-engineer developer code-reviewer auditor; do
+    [ -r "$ORCH_REPO/.claude/agents/$r.md" ] || missing="$missing $r"
+  done
+  if [ -z "$missing" ]; then
+    _d_ok "all six role definitions are installed in .claude/agents/"
+  else
+    _d_bad "not installed in .claude/agents/:$missing — \`claude --agent\` cannot resolve them and the session silently comes up unroled. Run ./install.sh"
+  fi
+
   printf '\n%s failed, %s warned.\n' "$_D_FAIL" "$_D_WARN"
   [ "$_D_FAIL" = "0" ]
 }
