@@ -2,10 +2,9 @@
 # cmux.sh - sessions as cmux workspaces.
 #
 # The default, and the reason the launcher seam exists at all. A cmux workspace
-# gives every property the tmux pane fabric was built to provide, without the
-# fabric: it is persistent, it is named, it survives the terminal closing, you
-# can watch it work in real time, and `cmux read-screen` reads it as plain text
-# from any other terminal.
+# is persistent, named, survives the terminal closing, can be watched working in
+# real time, and can be read as plain text from any other terminal with
+# `cmux read-screen` — without orch owning a single line of terminal plumbing.
 #
 # What it does NOT do is carry messages. Coordination is the shared task list;
 # cmux only decides where a session lives and how you look at it. Keeping those

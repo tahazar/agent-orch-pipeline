@@ -84,7 +84,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch diagnose run <F>                execute every prediction; results select
 
   orch report [F|--all]                cost, uptake, gate yield
-  orch watch                           live state, no tmux required
+  orch watch                           live state; no terminal UI, works over SSH
 
   orch lab baseline <F> [-- gate-cmd…] opt-in: attempt F solo, for comparison
   orch lab ablation [F|--all]          the comparison, once baselines exist
@@ -533,9 +533,9 @@ EOF
   watch)
     . "$ORCH_HOME/lib/escalate.sh"
     . "$ORCH_HOME/lib/substrate/base.sh"
-    # No tmux. State comes from the ledger, the shared task list, and the
-    # roster, so this works over SSH and from a phone, and a dead pane costs
-    # nothing.
+    # State comes from the ledger, the shared task list and the roster, so
+    # this needs no terminal UI: it works over SSH, from a phone, and after the
+    # session it is describing has died.
     while :; do
       clear 2>/dev/null || true
       printf 'orch watch — %s\n\n' "$(now_iso)"

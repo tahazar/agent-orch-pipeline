@@ -80,7 +80,6 @@ From any terminal, including one with no live session:
   orch approve $feature --gate human
 
 That writes to the shared task list under the first-party lock. It survives a
-dead session and it is greppable afterwards — which is more than typing into a
-tmux pane ever gave you.
+dead session and it is greppable afterwards.
 EOF
 exit 2
