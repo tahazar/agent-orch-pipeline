@@ -47,7 +47,9 @@ orch_resolve_dir() {
   ( cd -P "$(dirname "$src")" && pwd )
 }
 
-# ORCH_HOME is the orch/ directory: <repo>/orch.
+# ORCH_HOME is where orch itself is installed — the directory holding bin/,
+# lib/, agents/ and hooks/. Usually the repo root, but not necessarily: orch can
+# be installed anywhere and pointed at a different repo via ORCH_REPO.
 if [ -z "${ORCH_HOME:-}" ]; then
   ORCH_HOME="$(cd -P "$(orch_resolve_dir "${BASH_SOURCE[0]}")/.." && pwd)"
 fi

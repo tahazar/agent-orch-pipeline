@@ -8,7 +8,7 @@
 # disqualifying for a system whose first invariant is single-threaded writes.
 #
 # What this file is for: proving the seam is real. If teams graduate, this is
-# the only file that has to be written, and orch/test/seam.test.sh already
+# the only file that has to be written, and test/substrate.test.sh already
 # fails the build if anything above lib/substrate/ has reached around it.
 #
 # To adopt:

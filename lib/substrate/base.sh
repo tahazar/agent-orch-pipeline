@@ -4,7 +4,7 @@
 # Six operations, one implementation selected at load time. Everything above
 # this file talks to coordination only through these names. Nothing above this
 # directory may call `claude agents`, invoke SendMessage, or touch
-# ~/.claude/tasks - orch/test/seam.test.sh enforces that mechanically.
+# ~/.claude/tasks - test/substrate.test.sh enforces that mechanically.
 #
 # The seam exists because the substrate is a moving target: agent teams are
 # experimental today, the messaging socket is an internal, and the task-list

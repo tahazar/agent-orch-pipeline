@@ -8,7 +8,7 @@
     "in the repo, which made every other permission boundary decorative: the",
     "conductor could make a change itself and then approve it.",
     "",
-    "The path confinement is enforced by orch/hooks/write-scope.sh with",
+    "The path confinement is enforced by hooks/write-scope.sh with",
     "ORCH_ROLE=conductor, not by the globs here — in Claude Code deny beats allow,",
     "so 'deny everything, allow one prefix' cannot be expressed as a rule. What",
     "remains here are the denies that are absolute for every role: history",
@@ -16,8 +16,8 @@
     "",
     "Launch:",
     "  ORCH_ROLE=conductor CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
-    "  claude --settings orch/settings.json \\",
-    "         --settings orch/settings/role-conductor.json"
+    "  claude --settings settings.json \\",
+    "         --settings settings/role-conductor.json"
   ],
   "permissions": {
     "allow": [

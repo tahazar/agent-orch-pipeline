@@ -5,7 +5,7 @@
 # own throwaway repo and its own task-list root, so nothing here touches
 # ~/.claude and nothing is left behind.
 #
-#   bash orch/test/run-all.sh
+#   bash test/run-all.sh
 
 set -u
 HERE="$(cd -P "$(dirname "$0")" && pwd)"

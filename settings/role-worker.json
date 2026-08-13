@@ -3,7 +3,7 @@
     "Shared by planner, prover, builder, reviewer, and arbiter.",
     "",
     "Nothing here grants a write scope — that comes from ORCH_ROLE plus",
-    "orch/hooks/write-scope.sh, and for the builder from `isolation: worktree`,",
+    "hooks/write-scope.sh, and for the builder from `isolation: worktree`,",
     "which the platform enforces harder than any settings glob. What this file",
     "does is deny every path to the base branch. Invariant 1 says exactly one",
     "candidate diff reaches it at a time, and the only role that gets there is the",
@@ -11,8 +11,8 @@
     "",
     "Launch:",
     "  ORCH_ROLE=builder CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
-    "  claude --settings orch/settings.json \\",
-    "         --settings orch/settings/role-worker.json"
+    "  claude --settings settings.json \\",
+    "         --settings settings/role-worker.json"
   ],
   "permissions": {
     "allow": [
