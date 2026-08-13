@@ -1,0 +1,597 @@
+#!/bin/bash
+# orch - the orchestrator CLI.
+#
+# orch owns no transport. Claude Code ships the coordination layer — a shared,
+# file-locked task list and cross-session messaging — so this CLI is the human
+# entry point, the attested executor, and nothing else. Writing our own message
+# bus is how a pipeline acquires a message-id race and a verification path that
+# dead-letters what it already delivered.
+#
+# What that frees the budget for is the part that usually goes unmeasured:
+# whether orchestrating helped at all. `orch report` answers it from recorded
+# numbers, and `orch lab` runs the controlled comparison on demand.
+#
+# Portability: macOS stock /bin/bash 3.2. Dependencies: git, jq.
+
+set -u
+
+ORCH_PROG="$(basename "$0")"
+export ORCH_PROG
+
+_self_dir() {
+  local src="$0" dir
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  ( cd -P "$(dirname "$src")" && pwd )
+}
+ORCH_HOME="$(cd -P "$(_self_dir)/.." && pwd)"
+export ORCH_HOME
+
+. "$ORCH_HOME/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+orch — adaptive orchestration on Claude Code's native coordination primitives.
+
+  orch doctor                          check the §1 operational constraints
+  orch init                            print the environment two sessions must share
+  orch roster                          live sessions, via `claude agents --json`
+
+  orch feature start <F00N> --request <file|text> [--tier T] [--branch B]
+  orch feature current                 which feature hooks will attribute events to
+
+  orch tier recommend <F> <tier> --why WHY   the tech-lead proposes
+  orch tier confirm <F> [--tier T]     the human decides; sizes the crew
+  orch tier show <F>                   tier, recommendation, and crew, as JSON
+  orch tier crew [F]                   the roles this feature spawns
+
+  orch team start [--feature F]        spawn the run, or a feature's crew
+  orch team status                     who is alive, and where
+  orch team stop [--all]               close the sessions orch started
+  orch spawn <role> [--feature F] [--suffix S] [--cwd D]
+  orch peek <name> [--lines N]         read a session's screen
+  orch kill <name>
+
+  orch run --feature F --label L -- CMD…      attested execution
+  orch evidence verify --feature F --label L [--claim pass|fail] [--fresh]
+
+  orch gate read <F> <gate>            gate state, as JSON
+  orch gate set  <F> <gate> <met|open> [--sha SHA]
+  orch gate check <F> <gate>           exit 0 only if met for the current HEAD
+  orch approve <F> --gate <gate>       human approval, from any terminal
+
+  orch health signals <F>              which degradation signals are firing
+  orch escalate check <F>              escalate if the evidence warrants it
+  orch escalate to <F> <rung> [why]    force a rung (one-way)
+
+  orch findings add <F> --raised-by R --severity S --file P --line N \
+                        --claim C --consequence Q
+  orch findings deliver <F>            the verbatim text for the developer's next turn
+  orch findings dispute <F> <id> --reason WHY
+  orch findings verify <F>             classify open findings; prints uptake
+  orch findings yield [F|--all]        per-reviewer unique-find rate
+
+  orch candidates start <F> [-n N]     rung 3: N isolated worktrees
+  orch candidates collect <F> [gates…] gather each candidate's own attestations
+  orch candidates select <F>           mechanical selection; prints the winner
+  orch candidates clean <F> [--keep C]
+
+  orch diagnose start <F> <finding> [-k K]    rung 4: K competing hypotheses
+  orch diagnose predict <F> <k> --prediction P --command CMD
+  orch diagnose run <F>                execute every prediction; results select
+
+  orch report [F|--all]                cost, uptake, gate yield
+  orch watch                           live state; no terminal UI, works over SSH
+
+  orch lab baseline <F> [-- gate-cmd…] opt-in: attempt F solo, for comparison
+  orch lab ablation [F|--all]          the comparison, once baselines exist
+
+  orch post <to> <body>                durable notify (agents use SendMessage)
+  orch task claim <id> <owner> | release <id>
+  orch version
+EOF
+}
+
+# --------------------------------------------------------------------------
+# Argument helpers. bash 3.2: no associative arrays, so flags are scanned.
+# --------------------------------------------------------------------------
+
+# opt <name> <default> -- "$@"  -> prints the value of --name, or the default.
+opt() {
+  local name="$1" def="$2"; shift 2
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      "--$name") printf '%s' "${2-}"; return 0 ;;
+      "--$name="*) printf '%s' "${1#--$name=}"; return 0 ;;
+    esac
+    shift
+  done
+  printf '%s' "$def"
+}
+
+has_flag() {
+  local name="$1"; shift
+  while [ "$#" -gt 0 ]; do [ "$1" = "--$name" ] && return 0; shift; done
+  return 1
+}
+
+need() { [ -n "${1:-}" ] || die "$2"; printf '%s' "$1"; }
+
+# --------------------------------------------------------------------------
+
+cmd="${1:-}"; [ "$#" -gt 0 ] && shift
+
+case "$cmd" in ''|-h|--help|help) usage; exit 0 ;; esac
+[ "$cmd" = version ] && { printf 'orch %s (substrate verified on claude %s)\n' "$ORCH_VERSION" "$ORCH_VERIFIED_CLI"; exit 0; }
+
+require_cmd git
+require_cmd jq
+orch_require_repo
+
+case "$cmd" in
+
+  doctor)
+    . "$ORCH_HOME/lib/doctor.sh"
+    doctor_run
+    ;;
+
+  init)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    cat <<EOF
+Every session in an orch team must share these, or they coordinate with nobody:
+
+  export CLAUDE_CODE_TASK_LIST_ID=orch-$(basename "$ORCH_REPO")
+  export CLAUDE_PROJECT_DIR=$ORCH_REPO
+  PATH=$ORCH_HOME/bin:\$PATH
+
+And every session must launch in the SAME permission-mode class. A message
+between mismatched classes is held for approval and dropped after dialogExpiry
+(default 5m), so a mixed team does not error — it goes quiet.
+
+In .claude/settings.json:
+
+  { "crossSessionInbound": "accept" }
+
+Then:  orch doctor
+EOF
+    ;;
+
+  roster)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    substrate_roster | jq '.'
+    ;;
+
+  post)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    to="$(need "${1:-}" 'post: needs a recipient')"
+    body="$(need "${2:-}" 'post: needs a body')"
+    substrate_post "$to" "$body"
+    printf 'posted to %s (durable inbox; a message is never load-bearing)\n' "$to"
+    ;;
+
+  task)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      claim)   substrate_claim_task "$(need "${1:-}" 'task claim: needs an id')" "${2:-$(orch_actor)}" ;;
+      release) substrate_release_task "$(need "${1:-}" 'task release: needs an id')" ;;
+      *) die "task: expected claim or release" ;;
+    esac
+    ;;
+
+  feature)
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        f="$(need "${1:-}" 'feature start: needs a feature id like F001-parser')"; shift
+        orch_valid_feature "$f" || die "feature start: '$f' is not a valid feature id (F00N-slug)"
+        . "$ORCH_HOME/lib/tier.sh"
+        t="$(opt tier '' "$@")"
+        [ -z "$t" ] || tier_valid "$t" || die "feature start: '$t' is not a tier (expected: $ORCH_TIERS)"
+        req="$(opt request '' "$@")"
+        [ -n "$req" ] || die "feature start: --request is required. The crew needs to know what
+you are asking for, and freezing it means the tech-lead's requirements.md can
+be compared against what you actually said.
+
+  orch feature start $f --request docs/specs/thing.md
+  orch feature start $f --request \"Parse the CSV export, tolerate BOM headers\""
+
+        mkdir -p "$(orch_feature_dir "$f")"
+        orch_set_current_feature "$f"
+        base="$(opt base "$(escalate_base_branch)" "$@")"
+        printf '%s\n' "$base" > "$ORCH_REPO/.orch/base-branch"
+
+        # Freeze the request. A file is copied rather than referenced: the
+        # point of freezing is that editing your spec mid-run cannot silently
+        # change what the crew was asked for.
+        if [ -r "$req" ]; then
+          cp "$req" "$(orch_feature_dir "$f")/request.md"
+          reqsrc="$req"
+        else
+          printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"
+          reqsrc="(inline)"
+        fi
+
+        # A branch per feature, so the merge the director is told to make has
+        # something to merge, and so an abandoned feature is one branch to
+        # delete rather than a working tree to unpick.
+        # feature/<F>, not orch/<F>: best-of-N candidates take refs under
+        # orch/<F>/cN, and git cannot hold both a branch named orch/<F> and a
+        # directory of refs beneath it.
+        br="$(opt branch "feature/$f" "$@")"
+        if [ "$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
+          note "already on $br"
+        elif git -C "$ORCH_REPO" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+          git -C "$ORCH_REPO" checkout -q "$br" || die "feature start: could not switch to $br"
+        else
+          git -C "$ORCH_REPO" checkout -q -b "$br" || die "feature start: could not create $br"
+        fi
+
+        ORCH_LEDGER_FEATURE="$f" ledger_append feature.started \
+          base "$base" branch "$br" request "$reqsrc" rung:raw 0
+        printf '%s started on branch %s (base %s).\n' "$f" "$br" "$base"
+        printf 'request frozen at %s\n' "$(orch_feature_dir "$f")/request.md"
+        if [ -n "$t" ]; then
+          tier_confirm "$f" "$t"
+        else
+          printf '\nNo tier yet, so no crew yet. The tech-lead reads the request and proposes one:\n'
+          printf '  orch tier recommend %s <%s> --why "..."\n' "$f" "$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')"
+          printf 'and you decide:\n  orch tier confirm %s\n' "$f"
+        fi
+        ;;
+      current) orch_current_feature; printf '\n' ;;
+      *) die "feature: expected start or current" ;;
+    esac
+    ;;
+
+  tier)
+    . "$ORCH_HOME/lib/tier.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      recommend)
+        f="$(need "${1:-}" 'tier recommend: needs a feature')"; shift
+        t="$(need "${1:-}" "tier recommend: needs a tier ($ORCH_TIERS)")"; shift
+        tier_recommend "$f" "$t" "$(opt why '' "$@")"
+        ;;
+      confirm)
+        f="$(need "${1:-}" 'tier confirm: needs a feature')"; shift
+        tier_confirm "$f" "$(opt tier '' "$@")"
+        ;;
+      show) tier_show "${1:-$(orch_current_feature)}" | jq '.' ;;
+      crew) tier_crew "$(escalate_rung "${1:-$(orch_current_feature)}")"; printf '\n' ;;
+      *) die "tier: expected recommend, confirm, show, or crew" ;;
+    esac
+    ;;
+
+  spawn)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    role="$(need "${1:-}" 'spawn: needs a role')"; shift 2>/dev/null || true
+    f="$(opt feature '' "$@")"
+    name="$(launcher_session_name "$role" "$(opt suffix '' "$@")")"
+    # Attributed explicitly. Falling through to orch_current_feature would bill
+    # a run-level session to whichever feature happened to be started last.
+    ORCH_LEDGER_FEATURE="${f:-_orch}" \
+      launcher_spawn "$role" "$name" "$(opt cwd "$ORCH_REPO" "$@")" \
+        $(launcher_env "$role" "$f")
+    ;;
+
+  peek)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    launcher_peek "$(need "${1:-}" 'peek: needs a session name')" "$(opt lines 60 "$@")"
+    ;;
+
+  kill)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    launcher_kill "$(need "${1:-}" 'kill: needs a session name')"
+    ;;
+
+  team)
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    . "$ORCH_HOME/lib/tier.sh"
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        f="$(opt feature '' "$@")"
+        if [ -z "$f" ]; then
+          # The run, not a feature. These two outlive every feature, so they
+          # are started once and never sized by a tier.
+          for r in director auditor; do
+            ORCH_LEDGER_FEATURE=_orch \
+              launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
+                $(launcher_env "$r") || true
+          done
+          printf '\nThe run is up. Start a feature next:\n'
+          printf '  orch feature start F001-<slug>\n'
+        else
+          orch_valid_feature "$f" || die "team start: '$f' is not a valid feature id"
+          tier_is_confirmed "$f" || die "team start: $f has no confirmed tier, so there is no crew to size.
+  orch tier recommend $f <$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')> --why \"...\"
+  orch tier confirm $f"
+          crew="$(tier_crew "$(escalate_rung "$f")")"
+          [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
+          for r in $crew; do
+            ORCH_LEDGER_FEATURE="$f" \
+              launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
+                $(launcher_env "$r" "$f") || true
+          done
+          printf '\ncrew up for %s at tier `%s`.\n' "$f" "$(tier_current "$f")"
+        fi
+        ;;
+      status)
+        printf 'launcher: %s\n' "$(launcher_name)"
+        printf '\nstarted by orch:\n'
+        launcher_list | sed 's/^/  /' | grep . || printf '  (none)\n'
+        printf '\nregistered with the platform:\n'
+        substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  \(.status // "?")  \(.cwd)" end'
+        ;;
+      stop)
+        for n in $(launcher_list); do launcher_kill "$n" || true; done
+        ;;
+      *) die "team: expected start, status, or stop" ;;
+    esac
+    ;;
+
+  run)
+    . "$ORCH_HOME/lib/evidence.sh"
+    f="$(opt feature "$(orch_current_feature)" "$@")"
+    l="$(opt label '' "$@")"
+    [ -n "$l" ] || die 'run: --label is required (it is what an approval cites)'
+    # Collect the command after `--` as an array, so quoting survives.
+    args=(); seen=0
+    for a in "$@"; do
+      if [ "$seen" = "1" ]; then args+=("$a"); elif [ "$a" = "--" ]; then seen=1; fi
+    done
+    [ "$seen" = "1" ] && [ "${#args[@]}" -gt 0 ] || die 'run: no command after `--`'
+    evidence_run "$f" "$l" -- "${args[@]}"
+    ;;
+
+  evidence)
+    . "$ORCH_HOME/lib/evidence.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      verify)
+        f="$(opt feature "$(orch_current_feature)" "$@")"
+        l="$(opt label '' "$@")"
+        [ -n "$l" ] || die 'evidence verify: --label is required'
+        set -- "$f" "$l" --claim "$(opt claim pass "$@")" $(has_flag fresh "$@" && printf -- --fresh)
+        evidence_verify "$@"
+        ;;
+      show)
+        f="$(opt feature "$(orch_current_feature)" "$@")"
+        cat "$(evidence_path "$f")" 2>/dev/null | jq -c '.'
+        ;;
+      *) die "evidence: expected verify or show" ;;
+    esac
+    ;;
+
+  gate)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'gate: needs a feature')"; shift 2>/dev/null || true
+    g="$(need "${1:-}" 'gate: needs a gate name')"; shift 2>/dev/null || true
+    case "$sub" in
+      read) substrate_read_gate "$f" "$g" | jq '.' ;;
+      set)
+        state="$(need "${1:-}" 'gate set: needs met or open')"; shift 2>/dev/null || true
+        substrate_set_gate "$f" "$g" "$state" "$(opt sha "$(orch_head_sha)" "$@")"
+        substrate_read_gate "$f" "$g" | jq '.'
+        ;;
+      check)
+        st="$(substrate_read_gate "$f" "$g")"
+        state="$(printf '%s' "$st" | jq -r '.state')"
+        sha="$(printf '%s' "$st" | jq -r '.sha')"
+        head="$(orch_head_sha)"
+        ORCH_LEDGER_FEATURE="$f" ledger_append gate.checked gate "$g" state "$state"
+        if [ "$state" != "met" ]; then
+          printf 'gate %s for %s is %s\n' "$g" "$f" "$state" >&2
+          ORCH_LEDGER_FEATURE="$f" ledger_append gate.blocked gate "$g" reason "state=$state"
+          exit 1
+        fi
+        if [ -n "$sha" ] && [ "$sha" != "$head" ]; then
+          printf 'gate %s for %s was met at %s but HEAD is now %s — approval does not carry across a moved branch tip\n' \
+            "$g" "$f" "$(printf '%s' "$sha" | cut -c1-12)" "$(printf '%s' "$head" | cut -c1-12)" >&2
+          ORCH_LEDGER_FEATURE="$f" ledger_append gate.blocked gate "$g" reason stale_sha
+          exit 1
+        fi
+        printf 'gate %s for %s: met\n' "$g" "$f"
+        ;;
+      *) die "gate: expected read, set, or check" ;;
+    esac
+    ;;
+
+  approve)
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    f="$(need "${1:-}" 'approve: needs a feature')"; shift
+    g="$(opt gate human "$@")"
+    sha="$(opt sha "$(orch_head_sha)" "$@")"
+    substrate_set_gate "$f" "$g" met "$sha"
+    printf 'approved: %s gate `%s` at %s\n' "$f" "$g" "$(printf '%s' "$sha" | cut -c1-12)"
+    printf 'This is durable and greppable, survives a dead session, and is scoped to that\nsha — move the branch and the approval stops applying.\n'
+    ;;
+
+  health)
+    . "$ORCH_HOME/lib/health.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      signals)
+        f="${1:-$(orch_current_feature)}"
+        health_signals "$f" | jq '.'
+        ;;
+      observe)
+        f="$(opt feature "$(orch_current_feature)" "$@")"
+        k="$(opt kind '' "$@")"
+        [ -n "$k" ] || die 'health observe: --kind is required'
+        # Everything except --feature/--kind becomes an observation field.
+        # This has to strip the flags it consumed rather than shifting a fixed
+        # number of times: a blind shift leaves `--feature F --kind K` in the
+        # argument list, and health_observe reads pairs positionally, so the
+        # flag names themselves get written as field names and the values that
+        # actually matter fall off the end.
+        obs=()
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --feature|--kind) shift 2 2>/dev/null || shift ;;
+            --feature=*|--kind=*) shift ;;
+            --*=*) obs+=("${1%%=*}"); obs[${#obs[@]}-1]="${obs[${#obs[@]}-1]#--}"; obs+=("${1#*=}"); shift ;;
+            --*) obs+=("${1#--}"); obs+=("${2-}"); shift 2 2>/dev/null || shift ;;
+            *) shift ;;
+          esac
+        done
+        health_observe "$f" "$k" "${obs[@]+"${obs[@]}"}"
+        ;;
+      *) die "health: expected signals or observe" ;;
+    esac
+    ;;
+
+  escalate)
+    . "$ORCH_HOME/lib/escalate.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      check) escalate_check "${1:-$(orch_current_feature)}" ;;
+      rung)  escalate_rung "${1:-$(orch_current_feature)}"; printf '\n' ;;
+      to)
+        f="$(need "${1:-}" 'escalate to: needs a feature')"
+        r="$(need "${2:-}" 'escalate to: needs a rung')"
+        escalate_to "$f" "$r" "${3:-}"
+        ;;
+      *) die "escalate: expected check, rung, or to" ;;
+    esac
+    ;;
+
+  findings)
+    . "$ORCH_HOME/lib/findings.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      add)
+        f="$(need "${1:-}" 'findings add: needs a feature')"; shift
+        # Validate before calling, not inside the argument list: `die` inside a
+        # command substitution kills only the subshell, so the caller would see
+        # the complaint on stderr and a zero exit — which is how a tool ends up
+        # printing an error and doing the thing anyway.
+        claim="$(opt claim '' "$@")"
+        cons="$(opt consequence '' "$@")"
+        [ -n "$claim" ] || die 'findings add: --claim is required'
+        [ -n "$cons" ]  || die 'findings add: --consequence is required — a finding with no stated consequence is an opinion'
+        findings_add "$f" \
+          "$(opt raised-by "$(orch_actor)" "$@")" \
+          "$(opt severity major "$@")" \
+          "$(opt file '' "$@")" \
+          "$(opt line 0 "$@")" \
+          "$claim" "$cons"
+        ;;
+      list)    findings_current "${1:-$(orch_current_feature)}" | jq -c '.' ;;
+      deliver) findings_render_open "${1:-$(orch_current_feature)}" || { printf 'No open findings.\n'; exit 0; } ;;
+      dispute)
+        f="$(need "${1:-}" 'findings dispute: needs a feature')"; shift
+        id="$(need "${1:-}" 'findings dispute: needs a finding id')"; shift
+        reason="$(opt reason '' "$@")"
+        [ -n "$reason" ] || die 'findings dispute: --reason is required — disputing without a reason is ignoring with extra steps'
+        findings_set_status "$f" "$id" disputed "$reason"
+        printf '%s disputed.\n' "$id"
+        ;;
+      verify)  findings_verify "${1:-$(orch_current_feature)}" ;;
+      uptake)  findings_uptake "${1:-$(orch_current_feature)}" | jq '.' ;;
+      yield)   findings_reviewer_yield "${1:---all}" | jq '.' ;;
+      *) die "findings: expected add, list, deliver, dispute, verify, uptake, or yield" ;;
+    esac
+    ;;
+
+  candidates)
+    . "$ORCH_HOME/lib/candidates.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'candidates: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      start)   candidates_start "$f" "$(opt n "$ORCH_BEST_OF_N" "$@")" ;;
+      collect) candidates_collect "$f" "$@" ;;
+      select)  candidates_select "$f" ;;
+      clean)   candidates_clean "$f" "$(opt keep '' "$@")" ;;
+      list)    candidates_list "$f" ;;
+      *) die "candidates: expected start, collect, select, clean, or list" ;;
+    esac
+    ;;
+
+  diagnose)
+    . "$ORCH_HOME/lib/diagnose.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'diagnose: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      start)   diagnose_start "$f" "$(need "${1:-}" 'diagnose start: needs a finding id')" "$(opt k "$ORCH_DIAGNOSE_K" "$@")" ;;
+      predict)
+        k="$(need "${1:-}" 'diagnose predict: needs a hypothesis number')"; shift
+        diagnose_predict "$f" "$k" "$(opt prediction '' "$@")" "$(opt command '' "$@")"
+        ;;
+      run)     diagnose_run "$f" ;;
+      show)    diagnose_current "$f" | jq -c '.' ;;
+      *) die "diagnose: expected start, predict, run, or show" ;;
+    esac
+    ;;
+
+  report)
+    . "$ORCH_HOME/lib/report.sh"
+    report_render "${1:---all}"
+    ;;
+
+  lab)
+    # The experiment, kept in its own namespace so it never reads like a step
+    # of the pipeline. Nothing here runs unless a human asks for it, and
+    # nothing here merges.
+    . "$ORCH_HOME/lib/report.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      baseline)
+        f="$(need "${1:-}" 'lab baseline: needs a feature')"; shift
+        report_baseline "$f" "$@"
+        ;;
+      ablation)
+        rows=''
+        for f in $([ "${1:---all}" = "--all" ] && report_features || printf '%s' "$1"); do
+          rows="${rows}$(report_feature_json "$f")
+"
+        done
+        if ! printf '%s' "$rows" | grep -v '^$' | jq -e -s 'any(.[]; .baseline != null)' >/dev/null 2>&1; then
+          printf 'No baselines recorded, so there is nothing to compare against.\n\n'
+          printf 'The ablation attempts a feature solo from the same requirements.md and\n'
+          printf 'merges nothing. It costs a second full attempt per feature, which is why\n'
+          printf 'it is opt-in:\n\n  orch lab baseline <feature> -- <gate command>\n\n'
+          printf 'Run it on every feature, not only the ones that escalated — otherwise\n'
+          printf 'escalation_precision has no denominator.\n'
+          exit 0
+        fi
+        report_ablation_render "$rows"
+        ;;
+      *) die "lab: expected baseline or ablation" ;;
+    esac
+    ;;
+
+  watch)
+    . "$ORCH_HOME/lib/escalate.sh"
+    . "$ORCH_HOME/lib/substrate/base.sh"
+    # State comes from the ledger, the shared task list and the roster, so
+    # this needs no terminal UI: it works over SSH, from a phone, and after the
+    # session it is describing has died.
+    while :; do
+      clear 2>/dev/null || true
+      printf 'orch watch — %s\n\n' "$(now_iso)"
+      printf 'sessions:\n'
+      substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  pid=\(.pid)  \(.cwd)" end'
+      printf '\nfeatures:\n'
+      for f in $(ls "$ORCH_REPO/docs/features" 2>/dev/null); do
+        orch_valid_feature "$f" || continue
+        [ "$f" = "_orch" ] && continue
+        printf '  %-22s rung %s (%s)  signals: %s\n' "$f" "$(escalate_rung "$f")" \
+          "$(escalate_rung_name "$(escalate_rung "$f")")" \
+          "$(. "$ORCH_HOME/lib/health.sh"; health_signals "$f" | jq -r '[.[].signal] | join(",") | if .=="" then "none" else . end')"
+      done
+      printf '\nrecent events:\n'
+      ledger_read --all | tail -12 | jq -r '"  \(.ts)  \(.feature)  \(.event)  \(.reason // .label // .gate // "")"' 2>/dev/null
+      [ "${ORCH_WATCH_ONCE:-0}" = "1" ] && break
+      sleep "${ORCH_WATCH_INTERVAL:-5}"
+    done
+    ;;
+
+  *) die "unknown command '$cmd' (try: $ORCH_PROG help)" ;;
+esac

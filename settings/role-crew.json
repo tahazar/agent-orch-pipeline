@@ -1,0 +1,45 @@
+{
+  "$comment": [
+    "Shared by tech-lead, test-engineer, developer, code-reviewer and auditor —",
+    "every role except the director.",
+    "",
+    "Nothing here grants a write scope. That comes from ORCH_ROLE plus",
+    "hooks/write-scope.sh, and for the developer and test-engineer from",
+    "`isolation: worktree`, which the platform enforces harder than any settings",
+    "glob. What this file does is deny every path to the base branch. Invariant 1",
+    "says exactly one candidate diff reaches it at a time, and the only role that",
+    "gets there is the director, through the human gate.",
+    "",
+    "Bash(mkdir:*) is allowed because a test-engineer writing the first test in a",
+    "project usually has to create the directory that holds it, and a role that",
+    "must stop and ask for that is a role that will instead put the test",
+    "somewhere it is allowed to write.",
+    "",
+    "Launch:",
+    "  ORCH_ROLE=developer CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
+    "  claude --settings settings.json \\",
+    "         --settings settings/role-crew.json"
+  ],
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Bash(orch:*)",
+      "Bash(mkdir:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(rm -rf:*)"
+    ]
+  }
+}

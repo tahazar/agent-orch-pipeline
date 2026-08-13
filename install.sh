@@ -1,118 +1,180 @@
 #!/bin/bash
-# install.sh - install the Agent Orchestrator Pipeline on this machine.
+# install.sh - put orch on your PATH and wire it into a project.
 #
-#   - checks prerequisites (tmux >= 3.2, claude, jq; warns about gh)
-#   - builds prompts and renders per-role settings
-#   - symlinks `pipeline` into ~/.local/bin
-#   - symlinks the pipeline-awareness skill into ~/.claude/skills
+# Two separate things, and it is worth knowing which you are doing:
+#
+#   the CLI       symlinked into ~/.local/bin once, machine-wide
+#   the project   agent definitions and hook wiring, per repository
+#
+# Run it from the orch checkout to do both against the current directory, or
+# point it at another repo:
+#
+#   ./install.sh                    install the CLI, wire up this repo
+#   ./install.sh ~/code/my-project  install the CLI, wire up that repo
+#   ./install.sh --cli-only         just the CLI
+#
+# Re-running is safe. Nothing here overwrites a file it did not write without
+# saying so first.
 
 set -u
 
 HERE="$(cd -P "$(dirname "$0")" && pwd)"
-BIN_DIR="${PIPELINE_BIN_DIR:-$HOME/.local/bin}"
-SKILL_DIR="${PIPELINE_SKILL_DIR:-$HOME/.claude/skills}"
+BIN_DIR="${ORCH_BIN_DIR:-$HOME/.local/bin}"
+ROLES="director tech-lead test-engineer developer code-reviewer auditor"
 
-problems=0
+RED=''; GRN=''; YEL=''; OFF=''
+if [ -t 1 ]; then RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; OFF=$'\033[0m'; fi
+ok()   { printf '  %sok%s   %s\n' "$GRN" "$OFF" "$1"; }
+warn() { printf '  %swarn%s %s\n' "$YEL" "$OFF" "$1"; }
+die()  { printf '  %sfail%s %s\n' "$RED" "$OFF" "$1" >&2; exit 1; }
 
-ok()    { printf '  \033[32mok\033[0m    %s\n' "$1"; }
-warn()  { printf '  \033[33mwarn\033[0m  %s\n' "$1"; }
-bad()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; problems=$((problems + 1)); }
+CLI_ONLY=0
+TARGET=''
+for a in "$@"; do
+  case "$a" in
+    --cli-only) CLI_ONLY=1 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option $a" ;;
+    *) TARGET="$a" ;;
+  esac
+done
 
-printf '\nAgent Orchestrator Pipeline - install\n\n'
-printf 'Prerequisites:\n'
+# ---------------------------------------------------------------------------
+printf '\nprerequisites:\n'
+# ---------------------------------------------------------------------------
 
-# --- tmux >= 3.2 ----------------------------------------------------------
-if command -v tmux >/dev/null 2>&1; then
-  raw="$(tmux -V 2>/dev/null | sed -e 's/^tmux //' -e 's/^next-//')"
-  major="$(printf '%s' "$raw" | sed -e 's/[^0-9.].*$//' -e 's/\..*$//')"
-  minor="$(printf '%s' "$raw" | sed -e 's/[^0-9.].*$//' -e 's/^[0-9]*\.//' -e 's/^$/0/')"
-  if [ -n "$major" ] && { [ "$major" -gt 3 ] 2>/dev/null || \
-     { [ "$major" -eq 3 ] 2>/dev/null && [ "$minor" -ge 2 ] 2>/dev/null; }; }; then
-    ok "tmux $raw"
-  else
-    bad "tmux >= 3.2 required (found $raw). On macOS: brew install tmux"
-  fi
-else
-  bad "tmux not found. On macOS: brew install tmux"
-fi
+for c in git jq; do
+  command -v "$c" >/dev/null 2>&1 || die "$c is required (brew install $c)"
+  ok "$c"
+done
 
-# --- claude ---------------------------------------------------------------
 if command -v claude >/dev/null 2>&1; then
   ok "claude $(claude --version 2>/dev/null | head -1)"
 else
-  bad "claude CLI not found - see https://claude.com/claude-code"
+  die "claude is required — https://claude.com/claude-code"
 fi
 
-# --- jq -------------------------------------------------------------------
-if command -v jq >/dev/null 2>&1; then
-  ok "jq $(jq --version 2>/dev/null)"
+# cmux is optional, and the only thing that is. Without it sessions still run;
+# you just cannot watch them.
+if command -v cmux >/dev/null 2>&1; then
+  ok "cmux — sessions will be persistent, named and watchable"
 else
-  bad "jq not found. On macOS: brew install jq"
+  warn "no cmux — sessions will run headless via 'claude --bg'."
+  warn "     'orch peek' and 'orch kill' need cmux: https://github.com/manaflow-ai/cmux"
 fi
 
-# --- gh (only needed to open the final PR in normal mode) -----------------
-if command -v gh >/dev/null 2>&1; then
-  ok "gh $(gh --version 2>/dev/null | head -1)"
-else
-  warn "gh not found - test mode works without it, but normal mode cannot open the final PR. On macOS: brew install gh"
-fi
-
-if [ "$problems" != "0" ]; then
-  printf '\n%s prerequisite problem(s); fix them and re-run.\n\n' "$problems"
-  exit 1
-fi
-
-# --- build ----------------------------------------------------------------
-printf '\nBuilding prompts and settings:\n'
-if bash "$HERE/build-prompts.sh" > /tmp/pipeline-install-build.$$ 2>&1; then
-  sed 's/^/  /' /tmp/pipeline-install-build.$$
-  rm -f /tmp/pipeline-install-build.$$
-else
-  sed 's/^/  /' /tmp/pipeline-install-build.$$
-  rm -f /tmp/pipeline-install-build.$$
-  printf '\nbuild-prompts.sh failed; aborting.\n\n'
-  exit 1
-fi
-
-# A settings file that fails validation is silently ignored by the CLI in some
-# modes. That would drop the permission allowlist, and every `pipeline tell`
-# would then land behind a permission dialog that swallows it. Verify here too.
-printf '\nValidating settings:\n'
-for f in "$HERE"/settings/role-*.json; do
-  [ -f "$f" ] || continue
-  if jq -e . "$f" >/dev/null 2>&1; then
-    ok "$(basename "$f")"
-  else
-    bad "$(basename "$f") is not valid JSON"
-  fi
-done
-[ "$problems" = "0" ] || { printf '\nAborting.\n\n'; exit 1; }
-
-# --- link the CLI ---------------------------------------------------------
-printf '\nInstalling:\n'
-mkdir -p "$BIN_DIR" || { printf '  cannot create %s\n' "$BIN_DIR"; exit 1; }
-chmod +x "$HERE/pipeline" "$HERE/hooks/"*.sh 2>/dev/null || true
-ln -sf "$HERE/pipeline" "$BIN_DIR/pipeline"
-ok "pipeline -> $BIN_DIR/pipeline"
-
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ok "$BIN_DIR is on PATH" ;;
-  *) warn "$BIN_DIR is NOT on PATH - add: export PATH=\"$BIN_DIR:\$PATH\"" ;;
+case "$(uname -s)" in
+  Darwin|Linux) ok "$(uname -s)" ;;
+  *) die "$(uname -s) is unsupported — cross-session messaging is macOS and Linux only" ;;
 esac
 
-# --- link the skill -------------------------------------------------------
-if [ -d "$HERE/skills/pipeline-awareness" ]; then
-  mkdir -p "$SKILL_DIR" 2>/dev/null || true
-  if ln -sfn "$HERE/skills/pipeline-awareness" "$SKILL_DIR/pipeline-awareness" 2>/dev/null; then
-    ok "pipeline-awareness skill -> $SKILL_DIR/pipeline-awareness"
-  else
-    warn "could not link the pipeline-awareness skill into $SKILL_DIR"
+# ---------------------------------------------------------------------------
+printf '\nthe CLI:\n'
+# ---------------------------------------------------------------------------
+
+mkdir -p "$BIN_DIR" || die "could not create $BIN_DIR"
+if [ -e "$BIN_DIR/orch" ] && [ ! -L "$BIN_DIR/orch" ]; then
+  die "$BIN_DIR/orch exists and is not a symlink — move it aside first"
+fi
+ln -sf "$HERE/bin/orch" "$BIN_DIR/orch"
+ok "orch -> $BIN_DIR/orch"
+
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ok "$BIN_DIR is on your PATH" ;;
+  *)
+    warn "$BIN_DIR is NOT on your PATH. Persist it where an interactive shell reads it:"
+    warn "     echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc && exec zsh"
+    ;;
+esac
+
+[ "$CLI_ONLY" = "1" ] && { printf '\nDone (CLI only).\n\n'; exit 0; }
+
+# ---------------------------------------------------------------------------
+printf '\nthe project:\n'
+# ---------------------------------------------------------------------------
+
+REPO="$(cd -P "${TARGET:-$PWD}" 2>/dev/null && pwd)" || die "no such directory: $TARGET"
+git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1 \
+  || die "$REPO is not a git repository (orch scopes everything to a repo)"
+REPO="$(git -C "$REPO" rev-parse --show-toplevel)"
+ok "$REPO"
+
+# Agent definitions. `claude --agent <name>` resolves from .claude/agents/, and
+# when it cannot resolve a name the session comes up as a plain assistant with
+# none of the role's tool restrictions — silently. That failure is why this is
+# checked by `orch doctor` as well as done here.
+mkdir -p "$REPO/.claude/agents" || die "could not create $REPO/.claude/agents"
+for r in $ROLES; do
+  src="$HERE/agents/$r.md"
+  dst="$REPO/.claude/agents/$r.md"
+  [ -r "$src" ] || die "missing role definition: $src"
+  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
+    warn "$dst exists and is not a symlink — leaving your version alone"
+    continue
   fi
+  ln -sf "$src" "$dst"
+done
+ok "six role definitions in .claude/agents/"
+
+# Those symlinks point at wherever orch is checked out on THIS machine, so
+# committing them hands the next person six dangling paths. settings.json is a
+# different case: it refers to $CLAUDE_PROJECT_DIR, which Claude Code expands
+# at hook time, so it is portable and worth committing.
+if ! grep -qs '^agents/$' "$REPO/.claude/.gitignore" 2>/dev/null; then
+  {
+    printf "# Symlinks into this machine's orch checkout. Not portable.\n"
+    printf 'agents/\n'
+    printf '# Settings we backed up before merging, and per-developer overrides.\n'
+    printf '*.orch-backup\nsettings.local.json\n'
+  } >> "$REPO/.claude/.gitignore"
+fi
+ok ".claude/.gitignore keeps the machine-specific symlinks out of git"
+
+# Hook wiring. Merged rather than replaced: this file is the project's, not
+# ours, and it usually has settings in it that have nothing to do with orch.
+SETTINGS="$REPO/.claude/settings.json"
+ORCH_SETTINGS="$HERE/settings.json"
+if [ -e "$SETTINGS" ]; then
+  jq -e . "$SETTINGS" >/dev/null 2>&1 || die "$SETTINGS is not valid JSON — fix it first"
+  cp "$SETTINGS" "$SETTINGS.orch-backup"
+  merged="$(jq -s '
+    .[0] as $existing | .[1] as $orch
+    | $existing
+    # Hooks merge per event, appending ours to whatever is already there, so a
+    # project that already hooks PostToolUse keeps its own.
+    | .hooks = (($existing.hooks // {}) * {} | . as $h
+        | reduce ($orch.hooks | keys[]) as $ev ($h;
+            .[$ev] = (($h[$ev] // []) + ($orch.hooks[$ev]))))
+    | .crossSessionInbound = ($orch.crossSessionInbound)
+  ' "$SETTINGS" "$ORCH_SETTINGS")" || die "could not merge settings"
+  printf '%s\n' "$merged" > "$SETTINGS"
+  ok "hooks merged into .claude/settings.json (backup: settings.json.orch-backup)"
+else
+  # $CLAUDE_PROJECT_DIR is expanded by Claude Code at hook time, so the file is
+  # portable across checkouts and safe to commit.
+  jq 'del(.["$comment"])' "$ORCH_SETTINGS" > "$SETTINGS" || die "could not write $SETTINGS"
+  ok "wrote .claude/settings.json"
 fi
 
-printf '\nDone.\n\n'
-printf 'Next:\n'
-printf '  1. cd into your project and check out a working branch (NOT main)\n'
-printf '  2. put your design at docs/specs/<name>.md\n'
-printf '  3. pipeline start --session <name> --agents "conductor,arbiter"\n'
-printf '  4. pipeline tell conductor "Build docs/specs/<name>.md. [SIGNAL:KICKOFF]"\n\n'
+jq -e . "$SETTINGS" >/dev/null 2>&1 || die "the merged settings are not valid JSON"
+for h in gate-guard task-guard write-scope task-scope audit-message health-probe; do
+  grep -q "$h.sh" "$SETTINGS" || warn "$h.sh is not wired in $SETTINGS"
+done
+
+# ---------------------------------------------------------------------------
+printf '\nnext:\n\n'
+# ---------------------------------------------------------------------------
+
+cat <<EOF
+  Every session in a team must share this, or they coordinate with nobody.
+  Put it in your shell profile:
+
+    export CLAUDE_CODE_TASK_LIST_ID=orch-$(basename "$REPO")
+
+  Then, from $REPO:
+
+    orch doctor                     check the install and the platform
+    orch team start                 bring up the director and the auditor
+    orch feature start F001-<slug>  begin a feature
+
+EOF
