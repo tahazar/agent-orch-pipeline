@@ -1,12 +1,27 @@
 #!/bin/bash
-# report.sh - what actually happened, and the ablation.
+# report.sh - what actually happened.
 #
-# This is the contribution. No controlled ablation of orchestrated versus solo
-# agents on a coding task at matched budget has been published [P20] - every
-# matched-budget study is reasoning or math, and cross-scaffold SWE-bench
-# comparison is unsound by the maintainers' own admission. `orch baseline` runs
-# the solo attempt on every feature regardless of rung, which is what makes
-# escalation_precision computable at all.
+# Two audiences, and they want different things.
+#
+# `orch report` is for the person running the pipeline: what did this feature
+# cost, did the reviewers find anything, did the gates ever block. It reads
+# what the run already recorded and asks nothing extra of anyone.
+#
+# `orch lab` is for the person asking whether the pipeline is worth running at
+# all. That question needs a control — the same requirements attempted solo —
+# and a control costs a second full attempt per feature. It is opt-in for
+# exactly that reason: a comparison nobody asked for is not worth doubling
+# every feature's bill.
+#
+# When lab data exists, report shows it. When it does not, report says nothing
+# about it rather than nagging: an experiment you have not chosen to run is not
+# a missing step.
+#
+# What the experiment is for, when you do run it: no controlled ablation of
+# orchestrated versus solo agents on a coding task at matched budget has been
+# published. The matched-budget result the ladder is built on [P20] is
+# multi-hop question answering on non-frontier models, and its authors put
+# tool-using work explicitly out of scope. Nobody has measured this for coding.
 #
 # Publish the table whether or not it flatters the design. "Rung 4 never once
 # produced a distinguishing experiment" is a result, and it tells you to delete
@@ -166,11 +181,14 @@ report_render() {  # report_render <feature|--all>
 
 report_ablation_render() {  # report_ablation_render <rows>
   local rows="$1"
+  # Silent when the experiment has not been run. `orch lab` is opt-in, so an
+  # empty ablation is the normal state of a working pipeline, not a warning.
+  printf '%s' "$rows" | grep -v '^$' \
+    | jq -e -s 'any(.[]; .baseline != null)' >/dev/null 2>&1 || return 0
   printf '\nablation — orchestrated vs solo at the same requirements\n'
   printf '%s' "$rows" | grep -v '^$' | jq -s -r '
     [.[] | select(.baseline != null)] as $b
-    | if ($b|length)==0 then
-        "  no baselines recorded. Run `orch baseline <feature>` — without it neither the\n  cost multiplier nor escalation_precision can be computed, and both are the point."
+    | if ($b|length)==0 then ""
       else
         ($b | group_by(.rung) | map({
             rung: .[0].rung,

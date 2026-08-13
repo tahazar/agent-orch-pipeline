@@ -27,8 +27,15 @@ printf '\nno guessed numbers:\n'
 out="$("$ORCH" report F020-report 2>&1)"
 contains "$out" "F020-report" "the feature appears"
 contains "$out" "0·quick" "at rung 0"
-contains "$out" "no baselines recorded" "the ablation refuses to invent a multiplier"
-contains "$out" "escalation_precision" "and names the number it cannot yet compute"
+not_contains "$out" "ablation" "report says nothing about an experiment nobody ran"
+not_contains "$out" "escalation_precision" "and does not nag for a number it was never asked to compute"
+
+# The experiment has its own namespace, and explains itself rather than
+# appearing as an unfinished step of the normal report.
+lab="$("$ORCH" lab ablation --all 2>&1)"
+contains "$lab" "No baselines recorded" "orch lab ablation says there is nothing to compare"
+contains "$lab" "opt-in" "and that the experiment is opt-in"
+contains "$lab" "escalation_precision has no denominator" "and why partial data would not answer the question"
 # A cost report is not an LLM writing "~13k (est.)". Nothing here may print an
 # estimate: with no transcript to read, output tokens must be 0, not a guess.
 # ORCH_TRANSCRIPTS is pointed at an empty directory so the assertion holds
@@ -87,7 +94,7 @@ contains "$out" "33.6" "the 33.6% figure from [P11] is printed as the thing to b
 printf '\nreviewer yield across features:\n'
 contains "$out" "deletion candidate" "a lens with no unique yield is named as deletable"
 
-printf '\nablation with a recorded baseline:\n'
+printf '\nablation, once the experiment has been run:\n'
 # Synthesise a baseline rather than spending a real one: the arithmetic is what
 # is under test, and a live `claude -p` run would make this suite non-hermetic.
 cat > "$ORCH_REPO/docs/features/F020-report/baseline.json" <<'EOF'
@@ -101,8 +108,8 @@ contains "$out" "escalation_precision: 100%" "escalation_precision is computed f
 contains "$out" "3–10x" "published multipliers are printed for comparison"
 contains "$out" "trigger-happy" "and low precision is explained as a threshold problem"
 
-printf '\nbaseline refuses to guess:\n'
-out="$("$ORCH" baseline F021-missing 2>&1)"; rc=$?
+printf '\nthe baseline refuses to guess:\n'
+out="$("$ORCH" lab baseline F021-missing 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "a baseline for a feature with no requirements.md is refused"
 contains "$out" "nothing to give the solo agent" "and the reason is the missing input"
 

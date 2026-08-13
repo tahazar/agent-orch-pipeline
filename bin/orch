@@ -83,9 +83,11 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch diagnose predict <F> <k> --prediction P --command CMD
   orch diagnose run <F>                execute every prediction; results select
 
-  orch report [F|--all]                cost, uptake, gate yield, ablation
-  orch baseline <F> [-- gate-cmd…]     the solo attempt, for the ablation
+  orch report [F|--all]                cost, uptake, gate yield
   orch watch                           live state, no tmux required
+
+  orch lab baseline <F> [-- gate-cmd…] opt-in: attempt F solo, for comparison
+  orch lab ablation [F|--all]          the comparison, once baselines exist
 
   orch post <to> <body>                durable notify (agents use SendMessage)
   orch task claim <id> <owner> | release <id>
@@ -496,10 +498,36 @@ EOF
     report_render "${1:---all}"
     ;;
 
-  baseline)
+  lab)
+    # The experiment, kept in its own namespace so it never reads like a step
+    # of the pipeline. Nothing here runs unless a human asks for it, and
+    # nothing here merges.
     . "$ORCH_HOME/lib/report.sh"
-    f="$(need "${1:-}" 'baseline: needs a feature')"; shift
-    report_baseline "$f" "$@"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      baseline)
+        f="$(need "${1:-}" 'lab baseline: needs a feature')"; shift
+        report_baseline "$f" "$@"
+        ;;
+      ablation)
+        rows=''
+        for f in $([ "${1:---all}" = "--all" ] && report_features || printf '%s' "$1"); do
+          rows="${rows}$(report_feature_json "$f")
+"
+        done
+        if ! printf '%s' "$rows" | grep -v '^$' | jq -e -s 'any(.[]; .baseline != null)' >/dev/null 2>&1; then
+          printf 'No baselines recorded, so there is nothing to compare against.\n\n'
+          printf 'The ablation attempts a feature solo from the same requirements.md and\n'
+          printf 'merges nothing. It costs a second full attempt per feature, which is why\n'
+          printf 'it is opt-in:\n\n  orch lab baseline <feature> -- <gate command>\n\n'
+          printf 'Run it on every feature, not only the ones that escalated — otherwise\n'
+          printf 'escalation_precision has no denominator.\n'
+          exit 0
+        fi
+        report_ablation_render "$rows"
+        ;;
+      *) die "lab: expected baseline or ablation" ;;
+    esac
     ;;
 
   watch)
