@@ -12,3 +12,7 @@
 
 # Feature artifacts belong to the repo orch is pointed AT, not to orch itself.
 /docs/features/
+
+# A stray bridge symlink another session created here after v1 was deleted.
+# v1 lives at the v1-final tag; install a copy outside the repo instead.
+/pipeline
