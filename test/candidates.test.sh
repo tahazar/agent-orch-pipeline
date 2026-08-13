@@ -57,9 +57,12 @@ chk $? "and its content is not visible from the main checkout"
 # The platform blocks Edit/Write into the main checkout for a worktree-isolated
 # agent. That is enforcement we do not own, so what we assert here is the
 # property we DO own: nothing in orch hands a candidate a path out. Plus
-# write-scope refuses a test-path edit even inside the worktree.
+# write-scope refuses a test-path edit even inside the worktree — best-of-N is
+# rung 3 by definition, and the deny follows the rung, so the fixture records
+# the escalation a real run would carry.
+"$ORCH" escalate to F010-bestofn 3 "candidates fixture" >/dev/null 2>&1
 out="$(printf '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"%s"}}' \
-        "$ROOT/c1/test/test_calc.py" | ORCH_ROLE=developer "$ORCH_ROOT/hooks/write-scope.sh" 2>&1)"; rc=$?
+        "$ROOT/c1/test/test_calc.py" | ORCH_ROLE=developer ORCH_FEATURE=F010-bestofn "$ORCH_ROOT/hooks/write-scope.sh" 2>&1)"; rc=$?
 chk_rc 2 "$rc" "a candidate still cannot edit tests inside its own worktree"
 
 esc=0

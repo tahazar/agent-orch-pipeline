@@ -147,11 +147,28 @@ chk_rc 2 "$rc" "the director cannot edit source"
 contains "$out" "outside this role's write scope" "and is told why"
 out="$(ws "$ORCH_REPO/docs/features/F002-gates/design.md" director)"; rc=$?
 chk_rc 0 "$rc" "the director can write its own artifacts"
+# The developer's test-path deny follows the tier. The blind oracle only
+# exists once a test-engineer wrote it — at quick and standard the tier table
+# names the developer as the test author, and an unconditional deny made
+# test-writing unassignable to any role in a standard crew. Found live.
 out="$(ws "$ORCH_REPO/test/test_calc.py" developer)"; rc=$?
-chk_rc 2 "$rc" "the developer cannot edit the tests it must satisfy"
+chk_rc 0 "$rc" "below strict, the developer IS the test author"
+"$ORCH" escalate to F002-gates 2 "write-scope fixture" >/dev/null 2>&1
+out="$(ws "$ORCH_REPO/test/test_calc.py" developer)"; rc=$?
+chk_rc 2 "$rc" "at strict, the developer cannot edit the tests it must satisfy"
 contains "$out" "make it green" "and is told what that would let it do"
 out="$(ws "$ORCH_REPO/src/calc.py" developer)"; rc=$?
 chk_rc 0 "$rc" "the developer can edit source"
+
+# The boundary must not depend on the hook's cwd. Globs used to pathname-expand
+# against whatever directory the hook ran in, so the same file drew different
+# rejection messages from different places — one of them the self-refuting
+# "developer writes only: *".
+one="$(cd "$ORCH_REPO" && ws "$ORCH_REPO/test/test_calc.py" developer 2>&1; echo "rc=$?")"
+two="$(cd "$WORK"      && ws "$ORCH_REPO/test/test_calc.py" developer 2>&1; echo "rc=$?")"
+[ "$one" = "$two" ]; chk $? "a denial is identical from any cwd — the rule is fixed, not situational"
+one="$(cd "$WORK" && ws "$ORCH_REPO/src/calc.py" developer 2>&1; echo "rc=$?")"
+contains "$one" "rc=0" "and an allowed source write is allowed from any cwd"
 out="$(ws "$ORCH_REPO/src/calc.py" code-reviewer)"; rc=$?
 chk_rc 2 "$rc" "a code-reviewer contributes information, never actions"
 out="$(ws "$ORCH_REPO/src/calc.py" '')"; rc=$?
