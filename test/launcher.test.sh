@@ -66,15 +66,39 @@ chk $? "each knows which feature it is on"
 printf '\nroles launch with their own permissions:\n'
 out="$("$ORCH" team start 2>&1)"
 contains "$out" "role-director.json" "the director gets the director settings"
-printf '%s' "$out" | grep -A1 'ORCH_ROLE=auditor' | grep -q 'role-crew.json' \
-  || printf '%s' "$out" | grep 'agent auditor' | grep -q 'role-crew.json'
-chk $? "the auditor gets the crew settings, not the director's"
 contains "$out" "--permission-mode" "every session names a permission mode"
 [ "$(printf '%s' "$out" | grep -o -- '--permission-mode [a-zA-Z]*' | sort -u | grep -c .)" = "1" ]
 chk $? "and they all share one class — mismatched classes go quiet, not loud"
 
-printf '\ndirector and auditor are the run, not a feature:\n'
+printf '\nthe run is one session, not two:\n'
 not_contains "$out" "ORCH_FEATURE=" "starting the run pins no feature"
+not_contains "$out" "ORCH_ROLE=auditor" "no standing auditor — idle context is what its independence is made of"
+contains "$out" "orch audit" "and team start says where the auditor now comes from"
+
+printf '\nthe auditor is spawned per gate, fresh:\n'
+out="$("$ORCH" audit F031-strict --gate work 2>&1)"
+contains "$out" "ORCH_ROLE=auditor" "orch audit spawns the auditor"
+contains "$out" "ORCH_FEATURE=F031-strict" "pinned to the feature under review"
+contains "$out" "ORCH_GATE=work" "and told which gate it is adjudicating"
+contains "$out" "role-crew.json" "with the crew settings, not the director's"
+contains "$out" "--effort xhigh" "at xhigh effort — the one place deep thinking is bought deliberately"
+contains "$out" "orch kill auditor" "and the teardown is stated at spawn time"
+out="$("$ORCH" audit F999-nope 2>&1)"; rc=$?
+[ "$rc" != "0" ]; chk $? "auditing a feature that does not exist is refused"
+
+printf '\neffort follows the tier:\n'
+out="$("$ORCH" team start --feature F030-spawn 2>&1)"
+contains "$out" "--effort low" "a quick-tier crew runs at low effort"
+out="$("$ORCH" team start --feature F031-strict 2>&1)"
+not_contains "$out" "--effort" "a strict-tier crew runs at the model default"
+
+printf '\nrecycle rebuilds the env from the ledger:\n'
+out="$("$ORCH" team recycle developer 2>&1)"
+contains "$out" "ORCH_ROLE=developer" "the role comes back"
+contains "$out" "fresh context, same role" "and says what recycling means"
+out="$("$ORCH" team recycle nonesuch 2>&1)"; rc=$?
+[ "$rc" != "0" ]; chk $? "recycling a session orch never started is refused"
+contains "$out" "orch did not start it" "with the reason"
 
 printf '\na launcher that starts nothing does not claim it did:\n'
 LEDGER="$ORCH_REPO/docs/features/_orch/ledger.jsonl"

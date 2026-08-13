@@ -208,4 +208,45 @@ chk_rc 0 "$rc" "an unrelated tool is not intercepted"
 out="$(printf '{"tool_name":"TaskList","tool_input":{}}' | "$ORCH_ROOT/hooks/task-scope.sh" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "an unroled session is not confined by accident"
 
+# --- artifact scope --------------------------------------------------------
+#
+# The same principle as task scope, for docs/features/**: the two roles whose
+# value depends on not knowing things must not be able to read them.
+printf '\nartifact scope:\n'
+as() {  # as <role> <tool> <path>
+  printf '{"hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$2" "$3" \
+  | ORCH_ROLE="$1" ORCH_FEATURE=F002-gates "$ORCH_ROOT/hooks/artifact-scope.sh" 2>&1
+}
+FD="$ORCH_REPO/docs/features/F002-gates"
+
+out="$(as director Read "$FD/plan.md")"; rc=$?
+chk_rc 0 "$rc" "the director reads any artifact"
+out="$(as developer Read "$FD/plan.md")"; rc=$?
+chk_rc 0 "$rc" "the developer reads its own feature's artifacts"
+out="$(as developer Read "$ORCH_REPO/docs/features/F099-other/plan.md")"; rc=$?
+chk_rc 2 "$rc" "but not another feature's"
+
+out="$(as test-engineer Read "$FD/requirements.md")"; rc=$?
+chk_rc 0 "$rc" "the test-engineer reads the requirements"
+out="$(as test-engineer Read "$FD/request.md")"; rc=$?
+chk_rc 0 "$rc" "and the frozen request"
+out="$(as test-engineer Read "$FD/status.md")"; rc=$?
+chk_rc 2 "$rc" "but not the status — the oracle is written blind"
+contains "$out" "checks nothing" "and is told what a sighted test is worth"
+out="$(as test-engineer Read "$FD/ledger.jsonl")"; rc=$?
+chk_rc 2 "$rc" "nor the ledger — rulings that change the oracle belong in requirements.md"
+
+out="$(as code-reviewer Read "$FD/requirements.md")"; rc=$?
+chk_rc 0 "$rc" "the code-reviewer reads its criteria"
+out="$(as code-reviewer Read "$FD/plan.md")"; rc=$?
+chk_rc 2 "$rc" "but not the plan — the diff and the criteria are the whole brief"
+contains "$out" "second opinion" "and is told why"
+out="$(as code-reviewer Grep "$FD")"; rc=$?
+chk_rc 2 "$rc" "a Grep across the whole feature directory is a sweep of the trace, and blocked"
+
+out="$(as developer Read "$ORCH_REPO/src/calc.py")"; rc=$?
+chk_rc 0 "$rc" "source files are not this hook's business"
+out="$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$FD/plan.md" | "$ORCH_ROOT/hooks/artifact-scope.sh" 2>&1)"; rc=$?
+chk_rc 0 "$rc" "an unroled session is not confined by accident"
+
 finish gates

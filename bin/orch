@@ -51,6 +51,8 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch team start [--feature F]        spawn the run, or a feature's crew
   orch team status                     who is alive, and where
   orch team stop [--all]               close the sessions orch started
+  orch team recycle <name>             kill + respawn with the same env (compaction)
+  orch audit <F> [--gate G]            spawn a fresh auditor for one gate
   orch spawn <role> [--feature F] [--suffix S] [--cwd D]
   orch peek <name> [--lines N]         read a session's screen
   orch kill <name>
@@ -73,6 +75,8 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch findings dispute <F> <id> --reason WHY
   orch findings verify <F>             classify open findings; prints uptake
   orch findings yield [F|--all]        per-reviewer unique-find rate
+  orch review scope [F]                a re-review's packet: open findings + the
+                                       diff since the last verdict, nothing else
 
   orch candidates start <F> [-n N]     rung 3: N isolated worktrees
   orch candidates collect <F> [gates…] gather each candidate's own attestations
@@ -82,6 +86,10 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch diagnose start <F> <finding> [-k K]    rung 4: K competing hypotheses
   orch diagnose predict <F> <k> --prediction P --command CMD
   orch diagnose run <F>                execute every prediction; results select
+
+  orch status render|show [F]          status.md, generated from the ledger
+  orch decision record <F> --text T [--why W]   a decision, as a ledger event
+  orch decision list [F]
 
   orch report [F|--all]                cost, uptake, gate yield
   orch watch                           live state; no terminal UI, works over SSH
@@ -278,6 +286,26 @@ be compared against what you actually said.
         $(launcher_env "$role" "$f")
     ;;
 
+  audit)
+    # An auditor exists for the length of one gate. Spawning it fresh is not a
+    # cost-saving trick that happens to work — fresh context is the property an
+    # adversarial reviewer is supposed to have, and a session-long auditor
+    # slowly becomes a colleague. Everything it needs to know is in the ledger
+    # and the artifacts; everything it should not know is in the crew's heads.
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    f="$(need "${1:-}" 'audit: needs a feature')"; shift 2>/dev/null || true
+    orch_valid_feature "$f" || die "audit: invalid feature '$f'"
+    [ -d "$(orch_feature_dir "$f")" ] || die "audit: $f has no artifacts to audit — orch did not start it"
+    g="$(opt gate work "$@")"
+    ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT=xhigh \
+      launcher_spawn auditor "$(launcher_session_name auditor)" "$ORCH_REPO" \
+        $(launcher_env auditor "$f") "ORCH_GATE=$g"
+    ORCH_LEDGER_FEATURE="$f" ledger_append audit.opened gate "$g"
+    printf '\nauditor is up for %s, gate `%s`, at xhigh effort, with fresh context.\n' "$f" "$g"
+    printf 'When its verdict is on disk (gate set, or findings raised):\n'
+    printf '  orch kill auditor\n'
+    ;;
+
   peek)
     . "$ORCH_HOME/lib/launcher/base.sh"
     launcher_peek "$(need "${1:-}" 'peek: needs a session name')" "$(opt lines 60 "$@")"
@@ -297,24 +325,28 @@ be compared against what you actually said.
       start)
         f="$(opt feature '' "$@")"
         if [ -z "$f" ]; then
-          # The run, not a feature. These two outlive every feature, so they
-          # are started once and never sized by a tier.
-          for r in director auditor; do
-            ORCH_LEDGER_FEATURE=_orch \
-              launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
-                $(launcher_env "$r") || true
-          done
-          printf '\nThe run is up. Start a feature next:\n'
-          printf '  orch feature start F001-<slug>\n'
+          # The run, not a feature — and the run is ONE session. The auditor is
+          # no longer session-long: v1's arbiter spent 1.32M tokens mostly
+          # idle between gates, accruing exactly the context an adversarial
+          # reviewer is not supposed to have. `orch audit` spawns it fresh at
+          # each gate; the ledger, not its memory, is the continuity.
+          ORCH_LEDGER_FEATURE=_orch \
+            launcher_spawn director "$(launcher_session_name director)" "$ORCH_REPO" \
+              $(launcher_env director) || true
+          printf '\nThe run is up. The auditor is not a standing session — it is\n'
+          printf 'spawned fresh at each gate by `orch audit`. Start a feature next:\n'
+          printf '  orch feature start F001-<slug> --request "..."\n'
         else
           orch_valid_feature "$f" || die "team start: '$f' is not a valid feature id"
           tier_is_confirmed "$f" || die "team start: $f has no confirmed tier, so there is no crew to size.
   orch tier recommend $f <$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')> --why \"...\"
   orch tier confirm $f"
-          crew="$(tier_crew "$(escalate_rung "$f")")"
+          rung="$(escalate_rung "$f")"
+          crew="$(tier_crew "$rung")"
           [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
+          eff="$(tier_effort "$rung")"
           for r in $crew; do
-            ORCH_LEDGER_FEATURE="$f" \
+            ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
               launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
                 $(launcher_env "$r" "$f") || true
           done
@@ -327,11 +359,84 @@ be compared against what you actually said.
         launcher_list | sed 's/^/  /' | grep . || printf '  (none)\n'
         printf '\nregistered with the platform:\n'
         substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  \(.status // "?")  \(.cwd)" end'
+        # A compacted session is quietly degraded: it works, it answers, and it
+        # half-remembers. Name the sessions it happened to, because "recycle on
+        # compaction" is only a policy if someone can see when it applies.
+        compacted="$(ledger_read --all | jq -r -s '
+          [.[] | select(type=="object" and .event=="health.compaction") | .session]
+          | unique | map(select(length>0)) | .[]' 2>/dev/null)"
+        if [ -n "$compacted" ]; then
+          hits="$(substrate_roster | jq -r --arg c "$compacted" '
+            ($c | split("\n")) as $ids
+            | [.[] | select(.sessionId as $s | $ids | index($s)) | .name // .sessionId]
+            | join(", ")' 2>/dev/null)"
+          if [ -n "$hits" ]; then
+            printf '\ncompacted since spawn — running on a degraded context:\n'
+            printf '  %s\n' "$hits"
+            printf '  recycle rather than ride it out:  orch team recycle <name>\n'
+          fi
+        fi
         ;;
       stop)
         for n in $(launcher_list); do launcher_kill "$n" || true; done
         ;;
-      *) die "team: expected start, status, or stop" ;;
+      recycle)
+        # For a session whose own context has degraded — compaction being the
+        # signal that matters. Agents are stateless relative to the ledger and
+        # the artifacts, so a respawn costs one re-read of the slice that
+        # matters; surviving on a compacted context costs every turn after it.
+        n="$(need "${1:-}" 'team recycle: needs a session name')"
+        # The spawn env is reconstructed from the ledger, not remembered by
+        # this process: recycle has to work from any terminal, including one
+        # opened after the machine rebooted.
+        # agent.printed counts too: under the print launcher a "recycle" is a
+        # re-print, which is exactly what that launcher means by spawning.
+        row="$(ledger_read --all | jq -c -s --arg n "$n" '
+          [.[] | select(type=="object"
+                        and (.event=="agent.spawned" or .event=="agent.printed")
+                        and .name==$n)]
+          | if length==0 then empty else .[-1] end' 2>/dev/null)"
+        [ -n "$row" ] || die "team recycle: no agent.spawned record for '$n' — orch did not start it"
+        role="$(printf '%s' "$row" | jq -r '.role')"
+        rf="$(printf '%s' "$row" | jq -r '.feature')"
+        [ "$rf" = "_orch" ] && rf=''
+        launcher_kill "$n" || true
+        eff=''
+        if [ -n "$rf" ]; then
+          . "$ORCH_HOME/lib/tier.sh"
+          eff="$(tier_effort "$(escalate_rung "$rf")")"
+        fi
+        ORCH_LEDGER_FEATURE="${rf:-_orch}" ORCH_EFFORT="$eff" \
+          launcher_spawn "$role" "$n" "$ORCH_REPO" $(launcher_env "$role" "$rf")
+        ORCH_LEDGER_FEATURE="${rf:-_orch}" ledger_append agent.recycled name "$n" role "$role"
+        printf '%s recycled: fresh context, same role, same coordination env.\n' "$n"
+        printf 'It resumes from the ledger and the artifacts — that is the design, not a hope.\n'
+        ;;
+      *) die "team: expected start, status, stop, or recycle" ;;
+    esac
+    ;;
+
+  status)
+    . "$ORCH_HOME/lib/status.sh"
+    sub="${1:-render}"; shift 2>/dev/null || true
+    case "$sub" in
+      render) status_render "${1:-$(orch_current_feature)}" >/dev/null
+              printf 'rendered %s\n' "$(status_path "${1:-$(orch_current_feature)}")" ;;
+      show)   status_render "${1:-$(orch_current_feature)}" ;;
+      *) die "status: expected render or show" ;;
+    esac
+    ;;
+
+  decision)
+    . "$ORCH_HOME/lib/status.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      record)
+        f="$(need "${1:-}" 'decision record: needs a feature')"; shift
+        decision_record "$f" "$(opt text '' "$@")" "$(opt why '' "$@")"
+        ;;
+      list) decision_list "${1:-$(orch_current_feature)}" ;;
+      *) die "decision: expected record or list" ;;
     esac
     ;;
 
@@ -497,6 +602,15 @@ be compared against what you actually said.
       uptake)  findings_uptake "${1:-$(orch_current_feature)}" | jq '.' ;;
       yield)   findings_reviewer_yield "${1:---all}" | jq '.' ;;
       *) die "findings: expected add, list, deliver, dispute, verify, uptake, or yield" ;;
+    esac
+    ;;
+
+  review)
+    . "$ORCH_HOME/lib/findings.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      scope) findings_review_scope "${1:-$(orch_current_feature)}" ;;
+      *) die "review: expected scope" ;;
     esac
     ;;
 

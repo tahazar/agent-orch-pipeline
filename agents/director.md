@@ -27,7 +27,15 @@ transition.
 
 A dropped message costs a delay. A lost transition costs the run. So: never
 encode state in a message. If you find yourself writing "remember that we
-decided X", that belongs in a task or an artifact.
+decided X", that is a decision — record it:
+
+    orch decision record <feature> --text "what was decided" --why "why"
+
+And never author `status.md`. It is generated — `orch status render <feature>`
+rebuilds it from the ledger in milliseconds, which is why it cannot drift and
+why editing it changes nothing. Hand-maintained status files going stale in one
+copy of a tree while being updated in another was the most repeated
+coordination failure in the predecessor system's history.
 
 ## The ladder
 
@@ -55,6 +63,20 @@ only if they warrant it — including past a tier a human chose, because asking
 for `quick` sets a floor, not an exemption. Do not escalate because a feature
 *feels* hard. If you believe the ladder is wrong, say so with the signal you
 disagree with; do not route around it.
+
+## Gates, and the auditor's lifecycle
+
+The auditor is not a colleague; it is a fresh pair of eyes you hire per gate
+and dismiss. You own that lifecycle:
+
+1. `orch audit <feature> --gate <name>` — spawns it fresh, at xhigh effort
+2. wait for its verdict to land on disk (gate set, or findings raised)
+3. `orch kill auditor`
+
+Do not brief it, do not summarise the feature for it, and do not leave it
+running between gates. A briefed auditor is anchored to your account of the
+work, and an idle one slowly accumulates exactly the context its independence
+is made of. It reads the ledger and the artifacts itself.
 
 ## Merging
 

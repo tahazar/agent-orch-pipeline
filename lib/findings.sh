@@ -189,3 +189,45 @@ findings_reviewer_yield() {  # findings_reviewer_yield <feature|--all>
     | map(. + {unique_find_rate: (if .raised==0 then null else (.unique_surviving * 100 / .raised | floor) end)})' \
     2>/dev/null || printf '[]'
 }
+
+# ---------------------------------------------------------------------------
+# Re-review scope
+# ---------------------------------------------------------------------------
+
+# findings_review_scope <feature>
+#
+# The packet a re-reviewer gets: the open findings, verbatim, plus the diff
+# since the last verdict — and nothing else. The v1 session's F006 took five
+# review cycles, and every cycle re-read the whole feature; re-reviewing
+# O(feature) instead of O(fix) is what turns a repair loop quadratic. The last
+# verdict's sha is on record (every finding and every gate.set carries one), so
+# "what changed since you last looked" is computed, not estimated.
+findings_review_scope() {
+  local feature="$1" since head base
+  head="$(orch_head_sha)"
+  since="$(ledger_read "$feature" | jq -s -r '
+    [.[] | select(type=="object"
+      and ((.event=="gate.set" and .gate=="review-clean") or .event=="finding.raised"))]
+    | if length==0 then "" else .[-1].sha end' 2>/dev/null)"
+
+  if [ -z "$since" ] || [ "$since" = "unknown" ]; then
+    . "$ORCH_HOME/lib/escalate.sh"
+    base="$(escalate_base_branch)"
+    printf '# Review scope for %s — FIRST review\n\n' "$feature"
+    printf 'No prior verdict on record, so the whole diff against `%s` is in scope:\n\n' "$base"
+    git -C "$ORCH_REPO" diff --stat "$base...HEAD" 2>/dev/null | sed 's/^/  /'
+    return 0
+  fi
+
+  printf '# Review scope for %s — re-review\n\n' "$feature"
+  printf 'Last verdict was at %s. Review the delta, not the feature:\n\n' "$(printf '%s' "$since" | cut -c1-12)"
+  if [ "$since" = "$head" ]; then
+    printf '  (nothing has changed since the last verdict — there is no delta to review)\n'
+  else
+    git -C "$ORCH_REPO" diff --stat "$since..HEAD" 2>/dev/null | sed 's/^/  /'
+    printf '\nFull delta:  git diff %s..%s\n' "$(printf '%s' "$since" | cut -c1-12)" "$(printf '%s' "$head" | cut -c1-12)"
+  fi
+  printf '\nWhat the delta must answer:\n\n'
+  findings_render_open "$feature" || printf 'No open findings — this re-review closes on the delta alone.\n'
+  printf '\nCode outside this delta was reviewed at the previous verdict and its\napproval stands. Re-opening it needs a NEW finding, not a re-read.\n'
+}

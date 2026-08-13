@@ -67,9 +67,17 @@ launcher_known_role() {  # launcher_known_role <role>
 
 # The command a session runs. Single-quoted for the shell it will be pasted or
 # sent into, so a repo path with a space does not silently split.
+#
+# ORCH_EFFORT, when set, becomes --effort. It is an env var rather than a
+# parameter because the caller that knows the right effort (team start reading
+# the tier, audit pinning xhigh) is two layers above the three launcher
+# implementations, and threading one string through every signature is how a
+# seam accretes arguments. Empty means the model's default, which is correct
+# for every tier above quick.
 launcher_claude_cmd() {  # launcher_claude_cmd <role> <name>
-  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'" \
-    "$1" "$2" "$ORCH_PERMISSION_MODE" "$(launcher_role_settings "$1")"
+  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s" \
+    "$1" "$2" "$ORCH_PERMISSION_MODE" "$(launcher_role_settings "$1")" \
+    "${ORCH_EFFORT:+ --effort $ORCH_EFFORT}"
 }
 
 # The environment every session in the team must share. Emitted as KEY=VALUE

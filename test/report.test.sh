@@ -72,6 +72,24 @@ else
 fi
 unset ORCH_TRANSCRIPTS
 
+printf '\ncoordination share — the number that took the v1 post-mortem by hand:\n'
+# Two sessions, two roles, known outputs: the split must fall out of the
+# ledger's by_role rows and the transcripts, with no estimation anywhere.
+export ORCH_TRANSCRIPTS="$WORK/role-transcripts"; mkdir -p "$ORCH_TRANSCRIPTS/proj"
+CLAUDE_CODE_SESSION_ID=sess-dir ORCH_ROLE=director \
+  "$ORCH" decision record F020-report --text "role split fixture" >/dev/null 2>&1
+CLAUDE_CODE_SESSION_ID=sess-dev ORCH_ROLE=developer \
+  "$ORCH" run --feature F020-report --label rolesplit -- sh -c 'exit 0' >/dev/null 2>&1
+printf '{"type":"assistant","message":{"usage":{"output_tokens":300}}}\n' > "$ORCH_TRANSCRIPTS/proj/sess-dir.jsonl"
+printf '{"type":"assistant","message":{"usage":{"output_tokens":700}}}\n' > "$ORCH_TRANSCRIPTS/proj/sess-dev.jsonl"
+out="$("$ORCH" report F020-report 2>&1)"
+contains "$out" "coordination 30% of 1000 attributed" "director 300 vs developer 700 splits as 30%"
+contains "$out" "28% of tokens, 36 words per diff line" "and the v1 baselines are named as the thing to beat"
+jq -e -s 'any(.[]; .by_role=="developer" and .event=="run.attested")' \
+  "$ORCH_REPO/docs/features/F020-report/ledger.jsonl" >/dev/null
+chk $? "ledger rows record which role wrote them"
+unset ORCH_TRANSCRIPTS
+
 printf '\ngate yield:\n'
 "$ORCH" gate check F020-report human >/dev/null 2>&1
 "$ORCH" approve F020-report --gate human >/dev/null 2>&1

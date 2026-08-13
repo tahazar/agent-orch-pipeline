@@ -10,7 +10,7 @@
 set -u
 HERE="$(cd -P "$(dirname "$0")" && pwd)"
 
-SUITES="agent-lint substrate gates health tier launcher findings candidates report endtoend"
+SUITES="agent-lint substrate gates health tier launcher status findings candidates report endtoend"
 FAILED=''
 START="$(date -u +%s)"
 

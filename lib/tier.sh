@@ -55,6 +55,21 @@ tier_crew() {  # tier_crew <rung>
   esac
 }
 
+# The reasoning effort a rung's crew runs at. Empty means the model default.
+#
+# Only quick is lowered. The v1 session spent 2.45M tokens having an opus
+# prover write tests, and the post-mortem's conclusion was not "think less
+# everywhere" — it was that trivial work bought the same machinery as hard
+# work. A quick-tier feature is by definition one the developer judged
+# mechanical, so it gets low effort; everything above runs at whatever the
+# role's model defaults to.
+tier_effort() {  # tier_effort <rung>
+  case "$1" in
+    0) printf 'low' ;;
+    *) printf '' ;;
+  esac
+}
+
 # Why each rung adds what it adds. Printed when a tier is confirmed, so the
 # developer sees the cost of the choice at the moment of making it.
 tier_rationale() {  # tier_rationale <rung>

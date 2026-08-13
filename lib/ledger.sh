@@ -32,6 +32,11 @@ ledger_append() {
   local event="$1"; shift
   local feature line
   feature="${ORCH_LEDGER_FEATURE:-$(orch_current_feature)}"
+  # by_role, not role: several events (agent.spawned, agent.recycled) carry a
+  # `role` field meaning "the role this event is about", which is not the same
+  # thing as the role of the session writing the row. by_role is the writer,
+  # and it is what lets `orch report` split usage into coordination versus
+  # production instead of asking anyone to estimate it.
   line="$(orch_json \
     ts "$(now_iso)" \
     event "$event" \
@@ -39,6 +44,7 @@ ledger_append() {
     feature "$feature" \
     sha "$(orch_head_sha)" \
     session "${CLAUDE_CODE_SESSION_ID:-}" \
+    by_role "${ORCH_ROLE:-}" \
     "$@" 2>/dev/null)" || return 0
   [ -n "$line" ] || return 0
   orch_append_jsonl "$(ledger_path "$feature")" "$line" 2>/dev/null || true
@@ -114,4 +120,27 @@ ledger_feature_usage() {  # ledger_feature_usage <feature>
          cache_read: (map(.cache_read) | add // 0),
          cache_write: (map(.cache_write) | add // 0)}' 2>/dev/null \
     || printf '{"sessions":0,"found":0,"input":0,"output":0,"cache_read":0,"cache_write":0}'
+}
+
+# Output tokens split by the role that spent them, from by_role on the rows
+# each session wrote. Coordination is director+auditor+tech-lead — the roles
+# that ship nothing directly. The v1 post-mortem measured them at 28% of the
+# session, by hand; this makes the same number fall out of the ledger.
+ledger_feature_role_usage() {  # ledger_feature_role_usage <feature>
+  local feature="$1" pairs sid role
+  pairs="$(ledger_read "$feature" | jq -s -r '
+    [.[] | select(type=="object" and (.session // "") != "" and (.by_role // "") != "")]
+    | group_by(.session) | map("\(.[0].session) \(.[-1].by_role)") | .[]' 2>/dev/null)"
+  if [ -z "$pairs" ]; then printf '{"attributed":0,"coordination":0,"production":0,"share":null}'; return 0; fi
+  printf '%s\n' "$pairs" | while IFS=' ' read -r sid role; do
+    [ -n "$sid" ] || continue
+    ledger_session_usage "$sid" | jq -c --arg role "$role" '. + {role: $role}'
+  done | jq -s '
+    [.[] | select(.found)] as $f
+    | ([$f[] | select(.role=="director" or .role=="auditor" or .role=="tech-lead") | .output] | add // 0) as $coord
+    | ([$f[] | select(.role=="developer" or .role=="test-engineer" or .role=="code-reviewer") | .output] | add // 0) as $prod
+    | {attributed: ($coord + $prod),
+       coordination: $coord, production: $prod,
+       share: (if ($coord + $prod) == 0 then null else (($coord * 100 / ($coord + $prod)) | floor) end)}' 2>/dev/null \
+    || printf '{"attributed":0,"coordination":0,"production":0,"share":null}'
 }

@@ -82,9 +82,16 @@ for r in director code-reviewer; do
   chk $? "$r is not needlessly isolated"
 done
 
-[ "$(fm "$AGENTS/developer.md" model)" = "sonnet" ]; chk $? "developer runs on sonnet, per §5"
-for r in director tech-lead test-engineer auditor; do
-  [ "$(fm "$AGENTS/$r.md" model)" = "opus" ]; chk $? "$r runs on opus, per §5"
+# Model placement follows the measured v1 session, not deference: the opus
+# prover spent 2.45M tokens writing tests while the sonnet inspector's findings
+# held up fine. Opus is reserved for the roles that decide — planning,
+# coordination, adjudication. Writing tests from explicit requirements is
+# producer work.
+for r in developer test-engineer; do
+  [ "$(fm "$AGENTS/$r.md" model)" = "sonnet" ]; chk $? "$r runs on sonnet — producer work"
+done
+for r in director tech-lead auditor; do
+  [ "$(fm "$AGENTS/$r.md" model)" = "opus" ]; chk $? "$r runs on opus — it decides things"
 done
 
 printf '\nevery invariant maps to a mechanism:\n'
