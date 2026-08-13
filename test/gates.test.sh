@@ -16,7 +16,7 @@ setup_repo gates
 printf 'ledger, evidence, blocking gates\n\n'
 
 export ORCH_FEATURE=F002-gates
-"$ORCH" feature start F002-gates >/dev/null 2>&1
+"$ORCH" feature start F002-gates --request "test fixture" >/dev/null 2>&1
 
 hook() {  # hook <script> <json>
   printf '%s' "$2" | "$ORCH_ROOT/hooks/$1"

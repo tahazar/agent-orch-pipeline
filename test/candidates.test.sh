@@ -14,7 +14,7 @@ setup_repo candidates
 printf 'best-of-N + diagnostic stage\n\n'
 
 export ORCH_FEATURE=F010-bestofn
-"$ORCH" feature start F010-bestofn >/dev/null 2>&1
+"$ORCH" feature start F010-bestofn --request "test fixture" >/dev/null 2>&1
 git checkout -q -b feature/F010
 
 printf 'spawning candidates:\n'
@@ -134,7 +134,7 @@ out="$(PATH=/usr/bin:/bin "$ORCH" candidates select F010-bestofn 2>/dev/null)"
 printf '\nno winner at all:\n'
 setup_repo bestofn2 >/dev/null 2>&1
 export ORCH_FEATURE=F011-nowin
-"$ORCH" feature start F011-nowin >/dev/null 2>&1
+"$ORCH" feature start F011-nowin --request "test fixture" >/dev/null 2>&1
 "$ORCH" candidates start F011-nowin -n 2 >/dev/null 2>&1
 R2="$ORCH_REPO/.orch/worktrees/F011-nowin"
 for c in c1 c2; do
@@ -154,7 +154,7 @@ chk $? "clean removes the losers and keeps the winner"
 printf '\ndiagnostic stage:\n'
 setup_repo diagnose >/dev/null 2>&1
 export ORCH_FEATURE=F012-diag
-"$ORCH" feature start F012-diag >/dev/null 2>&1
+"$ORCH" feature start F012-diag --request "test fixture" >/dev/null 2>&1
 fid="$("$ORCH" findings add F012-diag --raised-by correctness --severity blocking \
         --file src/calc.py --line 2 --claim "add is wrong" --consequence "callers get bad sums")"
 
@@ -184,7 +184,7 @@ chk $? "all K predictions were executed and attested"
 printf '\nno distinguishing experiment:\n'
 setup_repo diagnose2 >/dev/null 2>&1
 export ORCH_FEATURE=F013-nodiag
-"$ORCH" feature start F013-nodiag >/dev/null 2>&1
+"$ORCH" feature start F013-nodiag --request "test fixture" >/dev/null 2>&1
 fid="$("$ORCH" findings add F013-nodiag --raised-by correctness --severity blocking \
         --file src/calc.py --line 2 --claim x --consequence y)"
 "$ORCH" diagnose start F013-nodiag "$fid" -k 3 >/dev/null 2>&1
@@ -201,7 +201,7 @@ chk $? "the ladder moves to rung 5 on an inconclusive diagnosis"
 printf '\ntwo contradictory predictions:\n'
 setup_repo diagnose3 >/dev/null 2>&1
 export ORCH_FEATURE=F014-contra
-"$ORCH" feature start F014-contra >/dev/null 2>&1
+"$ORCH" feature start F014-contra --request "test fixture" >/dev/null 2>&1
 fid="$("$ORCH" findings add F014-contra --raised-by correctness --severity blocking --file a --line 1 --claim x --consequence y)"
 "$ORCH" diagnose start F014-contra "$fid" -k 2 >/dev/null 2>&1
 "$ORCH" diagnose predict F014-contra 1 --prediction p1 --command "exit 0" >/dev/null 2>&1

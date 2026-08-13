@@ -59,33 +59,69 @@ Start here whenever something behaves strangely.
 
 ## Your first feature
 
-```bash
-orch team start                       # bring up the director and the auditor
-orch feature start F001-csv-parser    # begin a feature
-```
-
-The `tech-lead` reads your request, writes `requirements.md`, and proposes how
-much machinery it needs:
+**1. Start the run.** This opens two sessions that live for the whole run: the
+`director`, which owns coordination and the merge, and the `auditor`, which
+reviews at every gate.
 
 ```bash
-orch tier recommend F001-csv-parser standard --why "three files, clear oracle"
+orch team start
 ```
 
-You decide. Nothing is spawned until you do:
+**2. Say what you want built.** The request is frozen at this point — editing
+your spec afterwards cannot silently change what the crew was asked for.
 
 ```bash
-orch tier confirm F001-csv-parser                # take the recommendation
-orch tier confirm F001-csv-parser --tier strict  # or override it
-orch team start --feature F001-csv-parser        # crew up
+orch feature start F001-csv-parser --request "Parse the CSV export. Tolerate a
+  BOM in the header row, and reject rows with the wrong column count instead of
+  padding them."
 ```
 
-Work happens. When it is ready:
+Or point at a file, if you have written one:
+
+```bash
+orch feature start F001-csv-parser --request docs/specs/csv-parser.md
+```
+
+That also checks out `feature/F001-csv-parser`. Your working branch is left
+alone.
+
+**3. Agree on how much machinery it needs.** The `tech-lead` reads the request,
+writes `requirements.md`, and proposes a tier — that command is *its* job, not
+yours. Nothing is spawned until you answer:
+
+```bash
+orch tier show F001-csv-parser      # what it proposed, and why
+orch tier confirm F001-csv-parser   # accept
+```
+
+Override it whenever you disagree:
+
+```bash
+orch tier confirm F001-csv-parser --tier strict
+```
+
+If you already know, skip the negotiation with `--tier` on step 2.
+
+**4. Let it work.**
+
+```bash
+orch team start --feature F001-csv-parser   # spawn the crew for that tier
+orch watch                                  # follow along
+```
+
+The crew writes tests, implements against them, and reviews the diff. Review
+findings are delivered to the developer verbatim, and every test result has to
+come from a real command — see [Evidence](#evidence).
+
+**5. Approve the merge.** Nothing reaches your base branch without this, and it
+binds to the exact commit you approved:
 
 ```bash
 orch approve F001-csv-parser --gate human
 ```
 
-You can run that from any terminal, including one with no session open.
+You can run that from any terminal, including one with no session open. If the
+branch moves afterwards, the approval is void and you will be asked again.
 
 ## Tiers
 
@@ -109,8 +145,21 @@ session, not per feature.
 Pick up front if you already know:
 
 ```bash
-orch feature start F002-typo --tier quick
+orch feature start F002-typo --request "fix the typo in the README heading" --tier quick
 ```
+
+## What it does to your git
+
+One branch per feature, `feature/<id>`, created when you start it. Work happens
+there; your base branch is untouched until you approve a squash-merge of the
+exact commit you reviewed.
+
+Best-of-N (below) puts each candidate in its own git worktree under `.orch/`,
+so parallel attempts cannot see or overwrite each other. Exactly one is merged
+and the rest are archived with their gate results.
+
+Nothing rebases and nothing force-pushes — those are denied outright. A bad
+merge is reverted, not rewritten.
 
 ## When orch overrules you
 
@@ -235,7 +284,7 @@ shows no unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-414 assertions across ten suites. No Claude session, no API key, no network.
+419 assertions across ten suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 

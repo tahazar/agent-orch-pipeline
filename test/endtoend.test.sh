@@ -59,7 +59,7 @@ git add -A && git commit -q -m "add the test runner"
 export ORCH_FEATURE=F001-mean
 
 printf 'plan:\n'
-"$ORCH" feature start F001-mean >/dev/null 2>&1
+"$ORCH" feature start F001-mean --request "test fixture" >/dev/null 2>&1
 chk $? "the feature starts"
 [ "$("$ORCH" escalate rung F001-mean)" = "0" ]; chk $? "at rung 0 — the default, and where most features should end"
 mkdir -p docs/features/F001-mean

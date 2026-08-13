@@ -19,7 +19,7 @@ chk $? "report on an empty repo exits 0"
 contains "$out" "No features found" "and says there is nothing rather than printing zeros"
 
 export ORCH_FEATURE=F020-report
-"$ORCH" feature start F020-report >/dev/null 2>&1
+"$ORCH" feature start F020-report --request "test fixture" >/dev/null 2>&1
 "$ORCH" run --feature F020-report --label build -- sh -c 'exit 0' >/dev/null 2>&1
 "$ORCH" run --feature F020-report --label tests -- sh -c 'exit 0' >/dev/null 2>&1
 

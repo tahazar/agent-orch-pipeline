@@ -11,7 +11,7 @@ setup_repo findings
 printf 'reviewer ensemble + critique uptake\n\n'
 
 export ORCH_FEATURE=F009-review
-"$ORCH" feature start F009-review >/dev/null 2>&1
+"$ORCH" feature start F009-review --request "test fixture" >/dev/null 2>&1
 
 # A seeded-defect fixture. Two defects that different lenses see: a wrong
 # result (correctness) and an unguarded division (failure-modes). Neither lens

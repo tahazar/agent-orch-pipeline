@@ -13,7 +13,7 @@ setup_repo health
 printf 'degradation detector + escalation ladder\n\n'
 
 export ORCH_FEATURE=F003-health
-"$ORCH" feature start F003-health >/dev/null 2>&1
+"$ORCH" feature start F003-health --request "test fixture" >/dev/null 2>&1
 
 probe() { printf '%s' "$1" | "$ORCH_ROOT/hooks/health-probe.sh"; }
 sigs()  { "$ORCH" health signals "${1:-F003-health}" | jq -r '[.[].signal] | sort | join(",")'; }
@@ -50,7 +50,7 @@ contains "$(sigs)" "compaction" "a compaction fires immediately"
 printf '\ntool_failure_rate:\n'
 setup_repo health2 >/dev/null 2>&1
 export ORCH_FEATURE=F004-fail
-"$ORCH" feature start F004-fail >/dev/null 2>&1
+"$ORCH" feature start F004-fail --request "test fixture" >/dev/null 2>&1
 i=0
 while [ "$i" -lt 14 ]; do probe "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"f$i\"}}"; i=$((i+1)); done
 i=0
@@ -61,7 +61,7 @@ contains "$(sigs F004-fail)" "tool_failure_rate" "6 failures in a 20-call window
 printf '\ntest_oscillation:\n'
 setup_repo health3 >/dev/null 2>&1
 export ORCH_FEATURE=F005-osc
-"$ORCH" feature start F005-osc >/dev/null 2>&1
+"$ORCH" feature start F005-osc --request "test fixture" >/dev/null 2>&1
 "$ORCH" run --feature F005-osc --label tests -- sh -c 'exit 0' >/dev/null 2>&1
 "$ORCH" run --feature F005-osc --label tests -- sh -c 'exit 1' >/dev/null 2>&1
 contains "$(sigs F005-osc)" "" "one flip is below the threshold"
@@ -73,7 +73,7 @@ contains "$(sigs F005-osc)" "test_oscillation" "pass -> fail -> pass is a loop t
 printf '\nedit_churn:\n'
 setup_repo health4 >/dev/null 2>&1
 export ORCH_FEATURE=F006-churn
-"$ORCH" feature start F006-churn >/dev/null 2>&1
+"$ORCH" feature start F006-churn --request "test fixture" >/dev/null 2>&1
 i=0
 while [ "$i" -lt 3 ]; do
   probe "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ORCH_REPO/src/calc.py\",\"old_string\":\"    return a + b\"}}"
@@ -98,7 +98,7 @@ chk $? "an unrecognised event is recorded as drift rather than dropped"
 printf '\nescalation ladder:\n'
 setup_repo ladder >/dev/null 2>&1
 export ORCH_FEATURE=F007-ladder
-"$ORCH" feature start F007-ladder >/dev/null 2>&1
+"$ORCH" feature start F007-ladder --request "test fixture" >/dev/null 2>&1
 [ "$("$ORCH" escalate rung F007-ladder)" = "0" ]; chk $? "a feature starts at rung 0"
 out="$("$ORCH" escalate check F007-ladder)"
 contains "$out" "stays at rung 0" "a clean feature does not escalate"
@@ -126,7 +126,7 @@ done
 
 # --- de-escalation is per feature -----------------------------------------
 printf '\nper-feature reset:\n'
-"$ORCH" feature start F008-next >/dev/null 2>&1
+"$ORCH" feature start F008-next --request "test fixture" >/dev/null 2>&1
 [ "$("$ORCH" escalate rung F008-next)" = "0" ]; chk $? "the next feature starts at rung 0 again"
 [ "$("$ORCH" escalate rung F007-ladder)" = "2" ]; chk $? "and the previous feature keeps its rung"
 

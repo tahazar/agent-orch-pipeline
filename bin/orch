@@ -40,7 +40,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch init                            print the environment two sessions must share
   orch roster                          live sessions, via `claude agents --json`
 
-  orch feature start <F00N> [--base B] [--tier T]   begin a feature
+  orch feature start <F00N> --request <file|text> [--tier T] [--branch B]
   orch feature current                 which feature hooks will attribute events to
 
   orch tier recommend <F> <tier> --why WHY   the tech-lead proposes
@@ -191,12 +191,49 @@ EOF
         . "$ORCH_HOME/lib/tier.sh"
         t="$(opt tier '' "$@")"
         [ -z "$t" ] || tier_valid "$t" || die "feature start: '$t' is not a tier (expected: $ORCH_TIERS)"
+        req="$(opt request '' "$@")"
+        [ -n "$req" ] || die "feature start: --request is required. The crew needs to know what
+you are asking for, and freezing it means the tech-lead's requirements.md can
+be compared against what you actually said.
+
+  orch feature start $f --request docs/specs/thing.md
+  orch feature start $f --request \"Parse the CSV export, tolerate BOM headers\""
+
         mkdir -p "$(orch_feature_dir "$f")"
         orch_set_current_feature "$f"
         base="$(opt base "$(escalate_base_branch)" "$@")"
         printf '%s\n' "$base" > "$ORCH_REPO/.orch/base-branch"
-        ORCH_LEDGER_FEATURE="$f" ledger_append feature.started base "$base" rung:raw 0
-        printf '%s started on base %s.\n' "$f" "$base"
+
+        # Freeze the request. A file is copied rather than referenced: the
+        # point of freezing is that editing your spec mid-run cannot silently
+        # change what the crew was asked for.
+        if [ -r "$req" ]; then
+          cp "$req" "$(orch_feature_dir "$f")/request.md"
+          reqsrc="$req"
+        else
+          printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"
+          reqsrc="(inline)"
+        fi
+
+        # A branch per feature, so the merge the director is told to make has
+        # something to merge, and so an abandoned feature is one branch to
+        # delete rather than a working tree to unpick.
+        # feature/<F>, not orch/<F>: best-of-N candidates take refs under
+        # orch/<F>/cN, and git cannot hold both a branch named orch/<F> and a
+        # directory of refs beneath it.
+        br="$(opt branch "feature/$f" "$@")"
+        if [ "$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
+          note "already on $br"
+        elif git -C "$ORCH_REPO" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+          git -C "$ORCH_REPO" checkout -q "$br" || die "feature start: could not switch to $br"
+        else
+          git -C "$ORCH_REPO" checkout -q -b "$br" || die "feature start: could not create $br"
+        fi
+
+        ORCH_LEDGER_FEATURE="$f" ledger_append feature.started \
+          base "$base" branch "$br" request "$reqsrc" rung:raw 0
+        printf '%s started on branch %s (base %s).\n' "$f" "$br" "$base"
+        printf 'request frozen at %s\n' "$(orch_feature_dir "$f")/request.md"
         if [ -n "$t" ]; then
           tier_confirm "$f" "$t"
         else

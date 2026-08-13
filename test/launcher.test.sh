@@ -33,7 +33,7 @@ out="$(ORCH_LAUNCHER=nonesuch "$ORCH" team status 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "an unknown launcher is refused, not silently defaulted"
 
 printf '\nno crew before a confirmed tier:\n'
-"$ORCH" feature start F030-spawn >/dev/null 2>&1
+"$ORCH" feature start F030-spawn --request "test fixture" >/dev/null 2>&1
 out="$("$ORCH" team start --feature F030-spawn 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "a crew cannot be spawned before a tier is confirmed"
 contains "$out" "no confirmed tier" "and the refusal says what is missing"
@@ -47,7 +47,7 @@ not_contains "$out" "code-reviewer" "but not a code-reviewer"
 not_contains "$out" "test-engineer" "and not a test-engineer"
 
 printf '\nthe crew grows with the rung:\n'
-"$ORCH" feature start F031-strict --tier strict >/dev/null 2>&1
+"$ORCH" feature start F031-strict --request "test fixture" --tier strict >/dev/null 2>&1
 out="$("$ORCH" team start --feature F031-strict 2>&1)"
 contains "$out" "test-engineer" "strict adds the test-engineer"
 contains "$out" "code-reviewer" "and the code-reviewer"
