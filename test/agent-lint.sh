@@ -107,6 +107,27 @@ for r in $ROLES; do
         # And it must actually be wired, or it enforces nothing.
         grep -q "$(basename "$m")" "$ORCH_ROOT/settings.json"
         chk $? "$r: $m is wired in settings.json"
+        # A hook that branches on ORCH_ROLE must have a branch for THIS role.
+        # Without one it runs, exits 0 and reports nothing, which is
+        # indistinguishable from an enforced boundary until it matters.
+        #
+        # Hooks that never read ORCH_ROLE are exempt because they are universal
+        # by design: nobody merges without approval, so gate-guard.sh has no
+        # per-role branch to have.
+        #
+        # What this still does not check: that the hook governs the right KIND
+        # of operation. A read-scoping invariant naming a write-scoping hook
+        # passes everything here, because both mention the role and both are
+        # wired. That gap is real — it cost this repo a code-reviewer invariant
+        # claiming hooks/write-scope.sh kept it from reading the developer's
+        # trace, which is not something a PreToolUse hook on Edit|Write ever
+        # gets the chance to do.
+        if grep -q 'ORCH_ROLE' "$ORCH_ROOT/$m"; then
+          grep -q "$r" "$ORCH_ROOT/$m"
+          chk $? "$r: $m is role-scoped and has a branch for it"
+        else
+          ok "$r: $m applies to every role"
+        fi
         ;;
       isolation)
         [ "$(fm "$AGENTS/$r.md" isolation)" = "worktree" ]

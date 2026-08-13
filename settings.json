@@ -39,6 +39,12 @@
         "hooks": [
           { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/write-scope.sh", "timeout": 10 }
         ]
+      },
+      {
+        "matcher": "TaskGet|TaskList|TaskUpdate",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/task-scope.sh", "timeout": 10 }
+        ]
       }
     ],
 

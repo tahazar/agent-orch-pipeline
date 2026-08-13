@@ -18,6 +18,8 @@ them pass.
   platform. [enforced-by: isolation]
 - You never merge or push. [enforced-by: hooks/gate-guard.sh]
 - The red phase is attested, not asserted. [enforced-by: hooks/task-guard.sh]
+- You do not read the developer's tasks. Tests come from `requirements.md`, not
+  from what the developer decided to build. [enforced-by: hooks/task-scope.sh]
 
 ## The red phase
 

@@ -169,4 +169,43 @@ chk_rc 0 "$rc" "an allowed path reached through a symlink is still allowed"
 out="$(ws "$WORK/link-to-repo/src/calc.py" director)"; rc=$?
 chk_rc 2 "$rc" "and a denied path reached through a symlink is still denied"
 
+# --- task scope ------------------------------------------------------------
+#
+# Sharing one task list is what gives the team locking and auto-unblock.
+# Reading all of it is a different thing, and for two roles it is the thing
+# that destroys what they are for.
+printf '\ntask scope:\n'
+ts() {  # ts <role> <tool> [feature] [owner-role]
+  printf '{"hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"metadata":{"orch":{"feature":"%s","role":"%s"}}}}' \
+    "$2" "${3:-}" "${4:-}" \
+  | ORCH_ROLE="$1" ORCH_FEATURE=F002-gates "$ORCH_ROOT/hooks/task-scope.sh" 2>&1
+}
+
+out="$(ts director TaskList)"; rc=$?
+chk_rc 0 "$rc" "the director sees the whole board"
+out="$(ts auditor TaskGet)"; rc=$?
+chk_rc 0 "$rc" "so does the auditor — hiding work from an adjudicator is how it approves what it could not see"
+
+out="$(ts code-reviewer TaskList)"; rc=$?
+chk_rc 2 "$rc" "a code-reviewer cannot read the task list at all"
+contains "$out" "second opinion" "and is told why its independence is the point"
+contains "$out" "orch findings add" "and how to report instead"
+
+out="$(ts developer TaskGet F002-gates)"; rc=$?
+chk_rc 0 "$rc" "the developer reads its own feature's tasks"
+out="$(ts developer TaskGet F099-other)"; rc=$?
+chk_rc 2 "$rc" "but not another feature's"
+contains "$out" "serial" "and is told features are separate contexts on purpose"
+
+out="$(ts test-engineer TaskGet F002-gates test-engineer)"; rc=$?
+chk_rc 0 "$rc" "the test-engineer reads its own tasks"
+out="$(ts test-engineer TaskGet F002-gates developer)"; rc=$?
+chk_rc 2 "$rc" "but never the developer's — a test written against the implementation checks nothing"
+contains "$out" "requirements.md" "and is pointed back at the requirements"
+
+out="$(ts developer Read F002-gates)"; rc=$?
+chk_rc 0 "$rc" "an unrelated tool is not intercepted"
+out="$(printf '{"tool_name":"TaskList","tool_input":{}}' | "$ORCH_ROOT/hooks/task-scope.sh" 2>&1)"; rc=$?
+chk_rc 0 "$rc" "an unroled session is not confined by accident"
+
 finish gates
