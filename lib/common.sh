@@ -17,7 +17,7 @@ ORCH_VERSION="2.0.0"
 
 # Substrate facts this build was verified against. `orch doctor` compares the
 # installed CLI to this and warns on drift; see docs/PROVENANCE.md [P35].
-ORCH_VERIFIED_CLI="2.1.228"
+ORCH_VERIFIED_CLI="2.1.229"
 
 : "${ORCH_PROG:=orch}"
 

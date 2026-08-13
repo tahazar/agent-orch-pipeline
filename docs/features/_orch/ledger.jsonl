@@ -1,0 +1,2 @@
+{"ts":"2026-08-13T04:38:38Z","event":"gate.checked","actor":"session:c3479e2a","feature":"_orch","sha":"1b3a0f86b86206e6ebd7a508efa674529af2d9fa","session":"c3479e2a-2e5f-4c20-a66e-c4668077c82c","gate":"human","state":"absent","cmd":"git push origin main"}
+{"ts":"2026-08-13T04:38:38Z","event":"gate.blocked","actor":"session:c3479e2a","feature":"_orch","sha":"1b3a0f86b86206e6ebd7a508efa674529af2d9fa","session":"c3479e2a-2e5f-4c20-a66e-c4668077c82c","gate":"human","reason":"state=absent","cmd":"git push origin main"}
