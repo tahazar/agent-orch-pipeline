@@ -118,4 +118,41 @@ contains "$out" "-n developer-c2" "a suffix distinguishes best-of-N candidates"
 out="$("$ORCH" spawn developer 2>&1)"
 contains "$out" "-n developer " "and a bare role keeps the plain name"
 
+printf '\nevery session wakes with marching orders:\n'
+# The first real run found the gap: a spawned session with no opening message
+# sits at an empty prompt, and the human ends up doing every role's job by
+# hand. The orders are part of the claude command itself.
+out="$("$ORCH" spawn tech-lead --feature F030-spawn 2>&1)"
+contains "$out" "Begin now" "the tech-lead wakes on duty, not at an empty prompt"
+contains "$out" "docs/features/F030-spawn/request.md" "pointed at the frozen request"
+contains "$out" "orch tier recommend F030-spawn" "and told how its proposal comes back"
+
+out="$("$ORCH" audit F031-strict --gate red 2>&1)"
+contains "$out" 'for F031-strict, gate' "the auditor is told which gate it exists for"
+contains "$out" "this gate only" "and that it exists for nothing else"
+
+out="$("$ORCH" team start --feature F030-spawn 2>&1)"
+contains "$out" "orch run --feature F030-spawn" "the developer wakes knowing how evidence is made"
+
+out="$("$ORCH" team start 2>&1)"
+contains "$out" "stand by" "with no run request on record, the director stands by for features"
+
+printf '\nkickoff — one command, and the director drives:\n'
+out="$("$ORCH" kickoff 2>&1)"; rc=$?
+[ "$rc" != "0" ]; chk $? "kickoff without a request is refused"
+out="$("$ORCH" kickoff --request "Build a CSV importer with three views" 2>&1)"
+[ -r "$ORCH_REPO/docs/features/_orch/request.md" ]
+chk $? "the run request is frozen at docs/features/_orch/request.md"
+contains "$out" "Decompose it into features" "the director wakes with decompose-and-drive orders"
+contains "$out" "orch tier confirm" "and the human is told exactly which gates are theirs"
+contains "$out" "orch approve" "including the merge"
+grep -q "Build a CSV importer" "$ORCH_REPO/docs/features/_orch/request.md"
+chk $? "and the frozen request is the one that was given"
+jq -e -s 'any(.[]; .event=="kickoff")' "$ORCH_REPO/docs/features/_orch/ledger.jsonl" >/dev/null
+chk $? "kickoff is a ledger event"
+
+# Orders carry human text; an apostrophe must not detonate the command line.
+out="$("$ORCH" kickoff --request "don't pad the rows; reject them" 2>&1)"; rc=$?
+chk_rc 0 "$rc" "a request with an apostrophe survives shell quoting"
+
 finish launcher

@@ -57,7 +57,30 @@ against, whether the role definitions resolved, whether your sessions share a
 permission mode, and whether cross-session messaging can actually reach them.
 Start here whenever something behaves strangely.
 
-## Your first feature
+## Kickoff — the director drives
+
+For a whole design, one command starts the run:
+
+```bash
+orch kickoff --request docs/specs/my-design.md    # or inline text
+```
+
+The request is frozen, and the `director` wakes with orders: decompose the
+design into features, then drive each one — spawning the tech-lead, crewing up
+at the confirmed tier, running the gates. Every spawned agent wakes already
+pointed at its work; nobody sits at an empty prompt.
+
+You are needed exactly where the gates name you:
+
+```bash
+orch tier confirm <F>              # each feature's cost, before any crew
+orch approve <F> --gate human      # each merge
+```
+
+Everything below is the same machinery driven by hand — useful for a single
+feature, or when you want each step under your fingers.
+
+## Your first feature, step by step
 
 **1. Start the run.** This opens two sessions that live for the whole run: the
 `director`, which owns coordination and the merge, and the `auditor`, which
@@ -314,7 +337,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-485 assertions across eleven suites. No Claude session, no API key, no network.
+501 assertions across eleven suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 

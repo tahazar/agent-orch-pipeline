@@ -40,6 +40,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch init                            print the environment two sessions must share
   orch roster                          live sessions, via `claude agents --json`
 
+  orch kickoff --request <file|text>   freeze the run request; the director drives
   orch feature start <F00N> --request <file|text> [--tier T] [--branch B]
   orch feature current                 which feature hooks will attribute events to
 
@@ -284,8 +285,44 @@ be compared against what you actually said.
     # Attributed explicitly. Falling through to orch_current_feature would bill
     # a run-level session to whichever feature happened to be started last.
     ORCH_LEDGER_FEATURE="${f:-_orch}" \
+      ORCH_PROMPT="${ORCH_PROMPT:-$(launcher_orders "$role" "$f")}" \
       launcher_spawn "$role" "$name" "$(opt cwd "$ORCH_REPO" "$@")" \
         $(launcher_env "$role" "$f")
+    ;;
+
+  kickoff)
+    # The one-command entry point, and the piece the first run showed was
+    # missing: v1 took a single KICKOFF signal and the conductor drove the
+    # whole session; this is that, on the new substrate. Freeze the run
+    # request, spawn the director with decompose-and-drive orders, done —
+    # every further spawn, gate and merge is the director working its role,
+    # and the human is needed exactly where the gates say so.
+    . "$ORCH_HOME/lib/launcher/base.sh"
+    req="$(opt request '' "$@")"
+    [ -n "$req" ] || die 'kickoff: --request is required — a run needs to know what it is building.
+  orch kickoff --request docs/specs/my-design.md
+  orch kickoff --request "one paragraph of what you want"'
+    mkdir -p "$(orch_feature_dir _orch)"
+    if [ -r "$req" ]; then cp "$req" "$(orch_feature_dir _orch)/request.md"; reqsrc="$req"
+    else printf '%s\n' "$req" > "$(orch_feature_dir _orch)/request.md"; reqsrc='(inline)'
+    fi
+    ORCH_LEDGER_FEATURE=_orch ledger_append kickoff request "$reqsrc"
+    # A director already up predates this request and is holding stale orders;
+    # replace it. It is stateless relative to the ledger, so this costs one
+    # re-read — and a kickoff the human just issued outranks whatever it was
+    # standing by for.
+    for n in $(launcher_list); do
+      [ "$n" = "director" ] && { launcher_kill director || true; }
+    done
+    ORCH_LEDGER_FEATURE=_orch \
+      ORCH_PROMPT="$(launcher_orders director)" \
+      launcher_spawn director "$(launcher_session_name director)" "$ORCH_REPO" \
+        $(launcher_env director)
+    printf '\nThe run is kicked off. The director decomposes the request and drives;\n'
+    printf 'you are needed at the gates it names:\n'
+    printf '  orch tier confirm <F>              each feature'"'"'s cost, before any crew\n'
+    printf '  orch approve <F> --gate human      each merge\n'
+    printf '\nWatch:  orch watch   ·   orch team status   ·   the orch:* workspaces\n'
     ;;
 
   audit)
@@ -300,6 +337,7 @@ be compared against what you actually said.
     [ -d "$(orch_feature_dir "$f")" ] || die "audit: $f has no artifacts to audit — orch did not start it"
     g="$(opt gate work "$@")"
     ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT=xhigh \
+      ORCH_PROMPT="$(launcher_orders auditor "$f" "$g")" \
       launcher_spawn auditor "$(launcher_session_name auditor)" "$ORCH_REPO" \
         $(launcher_env auditor "$f") "ORCH_GATE=$g"
     ORCH_LEDGER_FEATURE="$f" ledger_append audit.opened gate "$g"
@@ -333,6 +371,7 @@ be compared against what you actually said.
           # reviewer is not supposed to have. `orch audit` spawns it fresh at
           # each gate; the ledger, not its memory, is the continuity.
           ORCH_LEDGER_FEATURE=_orch \
+            ORCH_PROMPT="$(launcher_orders director)" \
             launcher_spawn director "$(launcher_session_name director)" "$ORCH_REPO" \
               $(launcher_env director) || true
           printf '\nThe run is up. The auditor is not a standing session — it is\n'
@@ -349,6 +388,7 @@ be compared against what you actually said.
           eff="$(tier_effort "$rung")"
           for r in $crew; do
             ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
+              ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
               launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
                 $(launcher_env "$r" "$f") || true
           done
@@ -409,6 +449,7 @@ be compared against what you actually said.
           eff="$(tier_effort "$(escalate_rung "$rf")")"
         fi
         ORCH_LEDGER_FEATURE="${rf:-_orch}" ORCH_EFFORT="$eff" \
+          ORCH_PROMPT="$(launcher_orders "$role" "$rf")" \
           launcher_spawn "$role" "$n" "$ORCH_REPO" $(launcher_env "$role" "$rf")
         ORCH_LEDGER_FEATURE="${rf:-_orch}" ledger_append agent.recycled name "$n" role "$role"
         printf '%s recycled: fresh context, same role, same coordination env.\n' "$n"
