@@ -1,11 +1,13 @@
 #!/bin/bash
 # evidence.sh - attested execution.
 #
-# Invariant 7: nothing is claimed that was not attested. v1's evidence header
-# was the best mechanism it had and it was still an agent's claim about its own
+# Invariant 7: nothing is claimed that was not attested.
+#
+# A self-reported evidence header is still an agent's claim about its own
 # diligence - a model that wanted to skip the tests could simply say it had run
-# them. Here the only way to produce an evidence row is to actually execute the
-# command, and every approval path checks the rows rather than the prose.
+# them, and the header would look identical. Here the only way to produce an
+# evidence row is to actually execute the command, and every approval path
+# checks the rows rather than the prose.
 
 [ -n "${ORCH_EVIDENCE_SOURCED:-}" ] && return 0
 ORCH_EVIDENCE_SOURCED=1

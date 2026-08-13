@@ -12,7 +12,7 @@
 # a permission rule anyway [P1][P5]. Invariant 2 says capability is enforced by
 # a mechanism and never by prompt; this is the mechanism for paths.
 #
-# Roles that need no path confinement (builder in a worktree) get it from
+# Roles that need no path confinement (developer in a worktree) get it from
 # `isolation: worktree` instead, which the platform enforces harder than any
 # settings glob: it blocks Edit/Write into the main checkout, Bash with a cwd
 # there, and `git -C` / GIT_DIR / GIT_WORK_TREE redirects out of the worktree.
@@ -45,14 +45,14 @@ esac
 
 # ALLOW and DENY are space-separated shell globs, evaluated against the
 # repo-relative path. DENY is checked first so a role can be given a broad
-# allowance minus a carve-out — which is what separates the builder (source,
+# allowance minus a carve-out — which is what separates the developer (source,
 # not tests) from everyone else.
 case "$role" in
-  conductor|planner|arbiter|reviewer)
+  director|tech-lead|auditor|code-reviewer)
     ALLOW='docs/features/*' ; DENY='' ;;
-  prover)
+  test-engineer)
     ALLOW="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*} docs/features/*" ; DENY='' ;;
-  builder)
+  developer)
     ALLOW='*' ; DENY="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*}" ;;
   *)
     exit 0 ;;
@@ -78,11 +78,11 @@ block() {
 
 if [ -n "$DENY" ] && matches "$rel" $DENY; then
   block "it is a test path" \
-"The builder does not author the tests it must satisfy. Separating test
-authorship from implementation is the point of rung 2 — a builder that can edit
+"The developer does not author the tests it must satisfy. Separating test
+authorship from implementation is the point of rung 2 — a developer that can edit
 the oracle can always make it green.
 
-If the test itself is wrong, say so and let the arbiter settle it by experiment:
+If the test itself is wrong, say so and let the auditor settle it by experiment:
   orch findings dispute <feature> <id> --reason \"<why the test is wrong>\""
 fi
 

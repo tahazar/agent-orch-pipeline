@@ -1,31 +1,32 @@
 #!/bin/bash
 # agent-lint.sh - the role definitions, checked mechanically.
 #
-# Two rules, both from §5, both of which v1 stated and only partly enforced.
+# Two rules.
 #
 # 1. EVERY invariant sentence in a role definition must map to a `tools` /
-#    `disallowedTools` entry or a hook. v1's prompt-lint checked some of this
-#    and missed the arbiter's drift entirely, which is the failure mode: a
-#    prompt that promises a boundary nothing enforces reads exactly like one
-#    that is enforced, right up until it matters.
+#    `disallowedTools` entry or a hook. A lint that checks only some of them
+#    misses the drift, and that is the failure mode worth guarding: a prompt
+#    promising a boundary that nothing enforces reads exactly like one that is
+#    enforced, right up until it matters.
 #
 #    The mapping is made checkable rather than inferred: an invariant line ends
 #    in `[enforced-by: X]`, and X must name a real mechanism.
 #
-# 2. Prompt budget. v1's six prompts totalled ~58k tokens appended to every
-#    request, including a builder carrying a playbook for a tier it is never
-#    spawned in. Ceilings: workers under 4k tokens, coordinators under 8k.
+# 2. Prompt budget. Role definitions are appended to every request the role
+#    makes, so they are paid for per turn, not once. A role carrying a playbook
+#    for a tier it is never spawned in is pure overhead on every call it makes.
+#    Ceilings: workers under 4k tokens, coordinators under 8k.
 
 . "$(cd -P "$(dirname "$0")" && pwd)/lib.sh"
 printf 'role definitions\n\n'
 
 AGENTS="$ORCH_ROOT/agents"
-ROLES="conductor planner prover builder reviewer arbiter"
-COORDINATORS="conductor arbiter"
-WORKERS="planner prover builder reviewer"
+ROLES="director tech-lead test-engineer developer code-reviewer auditor"
+COORDINATORS="director auditor"
+WORKERS="tech-lead test-engineer developer code-reviewer"
 
 # Tokens are estimated at 4 bytes each. The ceiling is an order-of-magnitude
-# guard against v1's 58k, not a precise budget, and being wrong by 20% here
+# guard, not a precise budget, and being wrong by 20% here
 # changes no decision.
 tokens_of() { printf '%s' "$(( $(wc -c < "$1") / 4 ))"; }
 
@@ -54,35 +55,35 @@ done
 printf '\ncapability is enforced by frontmatter, not by prose:\n'
 # Invariant 2: extra agents contribute information, never actions.
 for t in Edit Write NotebookEdit; do
-  case "$(fm "$AGENTS/reviewer.md" disallowedTools)" in
-    *"$t"*) ok "reviewer cannot $t" ;;
-    *) bad "reviewer's disallowedTools does not include $t — invariant 2 is prose only" ;;
+  case "$(fm "$AGENTS/code-reviewer.md" disallowedTools)" in
+    *"$t"*) ok "code-reviewer cannot $t" ;;
+    *) bad "code-reviewer's disallowedTools does not include $t — invariant 2 is prose only" ;;
   esac
 done
-case "$(fm "$AGENTS/reviewer.md" tools)" in
-  *Edit*|*Write*) bad "reviewer's tools allowlist includes a write tool" ;;
-  *) ok "reviewer's allowlist contains no write tool either" ;;
+case "$(fm "$AGENTS/code-reviewer.md" tools)" in
+  *Edit*|*Write*) bad "code-reviewer's tools allowlist includes a write tool" ;;
+  *) ok "code-reviewer's allowlist contains no write tool either" ;;
 esac
 
-# Invariant 3: reviewers get fresh context and never the builder's trace. The
-# mechanical half is that a reviewer cannot go and fetch it.
-case "$(fm "$AGENTS/reviewer.md" disallowedTools)" in
-  *SendMessage*) ok "reviewer cannot message the builder for its trace" ;;
-  *) bad "reviewer can SendMessage — nothing stops it asking for the builder's trace" ;;
+# Invariant 3: reviewers get fresh context and never the developer's trace. The
+# mechanical half is that a code-reviewer cannot go and fetch it.
+case "$(fm "$AGENTS/code-reviewer.md" disallowedTools)" in
+  *SendMessage*) ok "code-reviewer cannot message the developer for its trace" ;;
+  *) bad "code-reviewer can SendMessage — nothing stops it asking for the developer's trace" ;;
 esac
 
 # The two roles that must be isolated in a worktree.
-for r in builder prover; do
+for r in developer test-engineer; do
   [ "$(fm "$AGENTS/$r.md" isolation)" = "worktree" ]
   chk $? "$r declares isolation: worktree"
 done
-for r in conductor reviewer; do
+for r in director code-reviewer; do
   [ -z "$(fm "$AGENTS/$r.md" isolation)" ]
   chk $? "$r is not needlessly isolated"
 done
 
-[ "$(fm "$AGENTS/builder.md" model)" = "sonnet" ]; chk $? "builder runs on sonnet, per §5"
-for r in conductor planner prover arbiter; do
+[ "$(fm "$AGENTS/developer.md" model)" = "sonnet" ]; chk $? "developer runs on sonnet, per §5"
+for r in director tech-lead test-engineer auditor; do
   [ "$(fm "$AGENTS/$r.md" model)" = "opus" ]; chk $? "$r runs on opus, per §5"
 done
 
@@ -98,7 +99,7 @@ for r in $ROLES; do
   chk $? "$r: all $n_bullets invariants name their mechanism ($n_tagged tagged)"
 
   # And the named mechanism must exist: a hook file, a frontmatter tool list,
-  # or `isolation`. This is the check v1 lacked.
+  # or `isolation`. A prose-only invariant fails here.
   for m in $(printf '%s' "$block" | sed -n 's/.*\[enforced-by:[[:space:]]*\([^]]*\)\].*/\1/p'); do
     case "$m" in
       hooks/*)
@@ -130,7 +131,7 @@ printf '\nno role promises a boundary in prose alone:\n'
 # A role that says "never merge" must be a role that cannot merge. The gate
 # hook covers everyone, so what we check is that nobody claims a merge right.
 for r in $ROLES; do
-  [ "$r" = "conductor" ] && continue
+  [ "$r" = "director" ] && continue
   if grep -qi 'you may merge\|you can merge\|merge the branch yourself' "$AGENTS/$r.md"; then
     bad "$r claims a merge right it does not have"
   else
@@ -138,7 +139,7 @@ for r in $ROLES; do
   fi
 done
 
-printf '\nprompt budget — v1 shipped ~58k tokens appended to every request:\n'
+printf '\nprompt budget — every role definition is paid for on every turn it takes:\n'
 total=0
 for r in $WORKERS; do
   t="$(tokens_of "$AGENTS/$r.md")"; total=$((total + t))
@@ -149,19 +150,19 @@ for r in $COORDINATORS; do
   [ "$t" -lt 8000 ]; chk $? "$r is ${t} tokens (coordinator ceiling 8000)"
 done
 [ "$total" -lt 12000 ]
-chk $? "all six roles total ${total} tokens, against v1's ~58000"
+chk $? "all six roles total ${total} tokens (ceiling 12000)"
 
 printf '\nno role carries protocol it cannot act on:\n'
-# The builder is never spawned at rung 0 or 1, so a builder prompt that
+# The developer is never spawned at rung 0 or 1, so a developer prompt that
 # explains the whole ladder is paying for context it cannot use. Each worker
 # should mention at most the rungs it participates in.
-for r in prover reviewer; do
+for r in test-engineer code-reviewer; do
   if grep -q 'orch candidates\|orch diagnose\|orch escalate' "$AGENTS/$r.md"; then
     bad "$r carries coordination commands it never runs"
   else
     ok "$r carries no coordination commands"
   fi
 done
-grep -q 'orch escalate' "$AGENTS/conductor.md"; chk $? "the conductor does own the ladder"
+grep -q 'orch escalate' "$AGENTS/director.md"; chk $? "the director does own the ladder"
 
 finish agent-lint

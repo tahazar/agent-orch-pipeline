@@ -1,5 +1,5 @@
 #!/bin/bash
-# common.sh - shared helpers for orch v2.
+# common.sh - shared helpers for orch.
 #
 # Portability: must run under macOS stock /bin/bash 3.2.
 #   - no associative arrays, no mapfile/readarray, no ${var,,}
@@ -62,7 +62,7 @@ export ORCH_HOME
 # The repo orch operates on.
 #
 # Order matters, and it is not the obvious one. git's own idea of the working
-# tree comes BEFORE CLAUDE_PROJECT_DIR, because a builder at rung 3 runs inside
+# tree comes BEFORE CLAUDE_PROJECT_DIR, because a developer at rung 3 runs inside
 # a worktree while CLAUDE_PROJECT_DIR still points at the main checkout. Taking
 # the env var first would send that candidate's evidence to the main checkout —
 # which the platform blocks it from writing to, so the attestation would simply

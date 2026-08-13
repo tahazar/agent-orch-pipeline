@@ -1,15 +1,15 @@
 #!/bin/bash
 # findings.sh - review findings and critique uptake.
 #
-# The highest-expected-value single change carried over from v1. A pipeline
+# The highest-expected-value single mechanism in the pipeline. A pipeline
 # whose reviewer had strictly better precision (0.861 vs 0.644) produced worse
 # outcomes (85.2% vs 89.2%), because the solver acted on verified-useful
 # critique only 33.6% of the time; injecting the guidance into the solver's
 # working context recovered most of the loss [P11].
 #
 # Two consequences run through this file:
-#   1. delivery inlines the finding text verbatim into the builder's next turn.
-#      v1 relayed a filename through three hops and called that delivery.
+#   1. delivery inlines the finding text verbatim into the developer's next turn.
+#      Relaying a filename through three hops is not delivery.
 #   2. uptake is measured. Deliberately crudely - it measures engagement, not
 #      correctness. Correctness is the re-review's job. Engagement is the thing
 #      that was 33.6% and invisible.
@@ -63,7 +63,7 @@ findings_set_status() {  # findings_set_status <feature> <id> <status> [reason]
 # Delivery
 # ---------------------------------------------------------------------------
 
-# The text that goes into the builder's next turn, verbatim. Not a path to a
+# The text that goes into the developer's next turn, verbatim. Not a path to a
 # file, not a summary, not "see findings.jsonl" - the whole point of [P11] is
 # that the critique has to be in the working context to be acted on.
 findings_render_open() {  # findings_render_open <feature>
@@ -112,7 +112,7 @@ _finding_region_touched() {  # _finding_region_touched <sha> <file> <line>
 
 # findings_verify <feature> - classify every open finding as addressed or
 # ignored. Explicitly disputed findings are left alone; disputing is a claim a
-# human or the arbiter can check, and silently reclassifying it would destroy
+# human or the auditor can check, and silently reclassifying it would destroy
 # the distinction that makes the metric meaningful.
 findings_verify() {
   local feature="$1" row id sha file line status
@@ -140,7 +140,7 @@ findings_verify() {
 }
 
 # critique_uptake_rate: of findings that reached a terminal state, the fraction
-# the builder engaged with - addressed or explicitly disputed. Compare against
+# the developer engaged with - addressed or explicitly disputed. Compare against
 # the 33.6% baseline in [P11].
 findings_uptake() {  # findings_uptake <feature>
   findings_current "$1" | jq -s -c '
@@ -158,7 +158,8 @@ findings_uptake() {  # findings_uptake <feature>
 # Per-reviewer unique-find rate: findings only that reviewer raised, that
 # survived to addressed or disputed. A lens with near-zero unique yield over
 # 10+ features is a deletion candidate, and saying so in the report is the
-# discipline v1 lacked - there, every added role was a permanent cost with an
+# discipline that is easy to skip - without it every added role is a permanent
+# cost with an
 # unmeasured benefit.
 findings_reviewer_yield() {  # findings_reviewer_yield <feature|--all>
   local feature="$1" root

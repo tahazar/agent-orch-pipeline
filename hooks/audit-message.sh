@@ -1,12 +1,15 @@
 #!/bin/bash
 # audit-message.sh - PreToolUse + PostToolUse on SendMessage.
 #
-# v1 rejected native messaging partly because it wanted "a durable, greppable
-# audit log". SendMessage is a tool, and tools are hookable — so we get one,
-# and a better one than v1's messages.log, because PostToolUse also captures
-# the OUTCOME. A message that was held and then expired is logged as expired,
-# not as delivered. v1's verification path could not tell those apart and
-# dead-lettered messages it had actually delivered.
+# The usual argument for building a bespoke message bus is that you want a
+# durable, greppable audit log. You do not have to build one: SendMessage is a
+# tool, and tools are hookable.
+#
+# Hooking both sides is what makes this better than an audit log a sender writes
+# for itself, because PostToolUse captures the OUTCOME. A message that was held
+# and then expired is logged as expired, not as delivered. A sender-side log
+# cannot tell those apart, and a pipeline that cannot tell them apart eventually
+# dead-letters messages it has already delivered.
 #
 # Messages are ephemeral by design and nothing durable depends on them. This
 # hook exists so `orch report` can tell you how much of your coordination was

@@ -1,5 +1,5 @@
 #!/bin/bash
-# run-all.sh - the whole orch v2 suite.
+# run-all.sh - the whole orch suite.
 #
 # No Claude session, no network, no tmux, no API key. Every suite builds its
 # own throwaway repo and its own task-list root, so nothing here touches

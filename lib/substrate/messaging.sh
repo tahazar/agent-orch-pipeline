@@ -40,7 +40,8 @@ _tl_ensure() { mkdir -p "$(_tl_dir)"; }
 # We deliberately do NOT allocate under the task-list lock. The CLI's lock is
 # advisory and we cannot take it identically on every platform (see
 # orch_with_lock), so a scan-then-write would reintroduce exactly the id race
-# v1 had in msg-seq. Instead: pick the next free number, create the file with
+# a read-modify-write on a counter file would. Instead: pick the next free
+# number, create the file with
 # O_EXCL (`set -C` makes bash's `>` do that), and retry on collision. Whoever
 # else is writing - the CLI, another orch, both - the loser retries.
 _tl_create() {  # _tl_create <json-without-id>  -> prints id
@@ -177,7 +178,7 @@ orch_sub_release_task() {  # orch_sub_release_task <id>
 # A gate is a task carrying metadata.orch = {kind:"gate", gate, feature, sha}.
 # Storing gates as tasks rather than as files is what makes `orch approve`
 # work from any terminal and makes the gate visible in the same list the
-# conductor is already reading.
+# director is already reading.
 
 _gate_subject() { printf 'gate: %s · %s' "$2" "$1"; }  # _gate_subject <feature> <gate>
 

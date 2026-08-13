@@ -29,7 +29,7 @@ contains "$out" "F020-report" "the feature appears"
 contains "$out" "0·solo" "at rung 0"
 contains "$out" "no baselines recorded" "the ablation refuses to invent a multiplier"
 contains "$out" "escalation_precision" "and names the number it cannot yet compute"
-# v1's cost report was an LLM writing "~13k (est.)". Nothing here may print an
+# A cost report is not an LLM writing "~13k (est.)". Nothing here may print an
 # estimate: with no transcript to read, output tokens must be 0, not a guess.
 # ORCH_TRANSCRIPTS is pointed at an empty directory so the assertion holds
 # whether or not this suite happens to be running inside a live session.

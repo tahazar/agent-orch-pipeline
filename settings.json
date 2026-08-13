@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "orch v2 hook wiring. Merge into .claude/settings.json, or launch with",
+    "orch hook wiring. Merge into .claude/settings.json, or launch with",
     "  claude --settings settings.json",
     "",
     "SPEC DEVIATION (see README, 'Where the spec and the CLI disagree'): §6.2 of",

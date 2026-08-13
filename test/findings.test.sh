@@ -57,9 +57,9 @@ out="$("$ORCH" findings add F009-review --raised-by correctness --severity major
 
 printf '\ndelivery is verbatim, not a file path:\n'
 out="$("$ORCH" findings deliver F009-review)"
-contains "$out" "add() subtracts" "the claim text itself reaches the builder"
+contains "$out" "add() subtracts" "the claim text itself reaches the developer"
 contains "$out" "every caller of add() gets the wrong number" "so does the consequence"
-not_contains "$out" "findings.jsonl" "the builder is not handed a filename to go and read"
+not_contains "$out" "findings.jsonl" "the developer is not handed a filename to go and read"
 
 printf '\nuptake:\n'
 # Fix one finding, dispute one, ignore the rest — the three outcomes §10 measures.

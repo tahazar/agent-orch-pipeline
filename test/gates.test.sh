@@ -25,16 +25,16 @@ LEDGER="$ORCH_REPO/docs/features/F002-gates/ledger.jsonl"
 
 # --- message audit ---------------------------------------------------------
 printf 'message audit:\n'
-hook audit-message.sh '{"hook_event_name":"PreToolUse","tool_name":"SendMessage","tool_input":{"to":"builder","message":"start F002"}}'
+hook audit-message.sh '{"hook_event_name":"PreToolUse","tool_name":"SendMessage","tool_input":{"to":"developer","message":"start F002"}}'
 grep -q '"event":"message.posted"' "$LEDGER"; chk $? "PreToolUse logs the message"
 grep -q '"body":"start F002"' "$LEDGER"; chk $? "the body is logged, not just the fact of a message"
 
-hook audit-message.sh '{"hook_event_name":"PostToolUse","tool_name":"SendMessage","tool_input":{"to":"builder"},"tool_response":{"status":"delivered"}}'
+hook audit-message.sh '{"hook_event_name":"PostToolUse","tool_name":"SendMessage","tool_input":{"to":"developer"},"tool_response":{"status":"delivered"}}'
 grep -q '"outcome":"delivered"' "$LEDGER"; chk $? "a delivered message is logged as delivered"
 
-# The case v1 got wrong: it dead-lettered messages it had actually delivered,
+# The case worth asserting: a transport that dead-letters what it delivered,
 # and had no way to record one it had NOT.
-hook audit-message.sh '{"hook_event_name":"PostToolUse","tool_name":"SendMessage","tool_input":{"to":"reviewer"},"tool_response":{"status":"held","detail":"expired after dialogExpiry"}}'
+hook audit-message.sh '{"hook_event_name":"PostToolUse","tool_name":"SendMessage","tool_input":{"to":"code-reviewer"},"tool_response":{"status":"held","detail":"expired after dialogExpiry"}}'
 n_exp="$(grep -c '"outcome":"expired"' "$LEDGER")"
 n_del="$(grep -c '"outcome":"delivered"' "$LEDGER")"
 [ "$n_exp" = "1" ] && [ "$n_del" = "1" ]
@@ -117,7 +117,7 @@ contains "$out" "NOT blocking" "and it says so loudly instead of failing silentl
 
 # --- TaskCompleted guard ---------------------------------------------------
 printf '\ntask guard:\n'
-RED='{"hook_event_name":"TaskCompleted","task":{"subject":"prover: red phase for F002","metadata":{"orch":{"feature":"F002-gates","requires":"tests-fail-correctly"}}}}'
+RED='{"hook_event_name":"TaskCompleted","task":{"subject":"test-engineer: red phase for F002","metadata":{"orch":{"feature":"F002-gates","requires":"tests-fail-correctly"}}}}'
 out="$(hook task-guard.sh "$RED" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "the red phase passes when the tests are attested failing"
 
@@ -126,13 +126,13 @@ out="$(hook task-guard.sh "$RED" 2>&1)"; rc=$?
 chk_rc 2 "$rc" "the red phase is blocked when the tests pass before the code exists"
 contains "$out" "would be testing nothing" "and explains why that is the test's fault"
 
-out="$(hook task-guard.sh '{"hook_event_name":"TaskCompleted","stop_hook_active":true,"task":{"subject":"prover: red phase","metadata":{"orch":{"feature":"F002-gates","requires":"tests-fail-correctly"}}}}' 2>&1)"; rc=$?
+out="$(hook task-guard.sh '{"hook_event_name":"TaskCompleted","stop_hook_active":true,"task":{"subject":"test-engineer: red phase","metadata":{"orch":{"feature":"F002-gates","requires":"tests-fail-correctly"}}}}' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "stop_hook_active is honoured, so a guard cannot trap a session"
 
-BUILD='{"hook_event_name":"TaskCompleted","task":{"subject":"builder: implement F002","metadata":{"orch":{"feature":"F002-gates","requires":"tests-pass"}}}}'
+BUILD='{"hook_event_name":"TaskCompleted","task":{"subject":"developer: implement F002","metadata":{"orch":{"feature":"F002-gates","requires":"tests-pass"}}}}'
 "$ORCH" run --feature F002-gates --label build -- sh -c 'exit 0' >/dev/null 2>&1
 out="$(hook task-guard.sh "$BUILD" 2>&1)"; rc=$?
-chk_rc 0 "$rc" "the builder's task completes when build and tests are attested green"
+chk_rc 0 "$rc" "the developer's task completes when build and tests are attested green"
 
 "$ORCH" run --feature F002-gates --label build -- sh -c 'exit 7' >/dev/null 2>&1
 out="$(hook task-guard.sh "$BUILD" 2>&1)"; rc=$?
@@ -142,18 +142,18 @@ chk_rc 2 "$rc" "and is blocked the moment the oracle goes red"
 printf '\nwrite scope:\n'
 ws() { printf '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$1" \
        | ORCH_ROLE="$2" "$ORCH_ROOT/hooks/write-scope.sh" 2>&1; }
-out="$(ws "$ORCH_REPO/src/calc.py" conductor)"; rc=$?
-chk_rc 2 "$rc" "the conductor cannot edit source — v1's widest hole"
+out="$(ws "$ORCH_REPO/src/calc.py" director)"; rc=$?
+chk_rc 2 "$rc" "the director cannot edit source"
 contains "$out" "outside this role's write scope" "and is told why"
-out="$(ws "$ORCH_REPO/docs/features/F002-gates/design.md" conductor)"; rc=$?
-chk_rc 0 "$rc" "the conductor can write its own artifacts"
-out="$(ws "$ORCH_REPO/test/test_calc.py" builder)"; rc=$?
-chk_rc 2 "$rc" "the builder cannot edit the tests it must satisfy"
+out="$(ws "$ORCH_REPO/docs/features/F002-gates/design.md" director)"; rc=$?
+chk_rc 0 "$rc" "the director can write its own artifacts"
+out="$(ws "$ORCH_REPO/test/test_calc.py" developer)"; rc=$?
+chk_rc 2 "$rc" "the developer cannot edit the tests it must satisfy"
 contains "$out" "make it green" "and is told what that would let it do"
-out="$(ws "$ORCH_REPO/src/calc.py" builder)"; rc=$?
-chk_rc 0 "$rc" "the builder can edit source"
-out="$(ws "$ORCH_REPO/src/calc.py" reviewer)"; rc=$?
-chk_rc 2 "$rc" "a reviewer contributes information, never actions"
+out="$(ws "$ORCH_REPO/src/calc.py" developer)"; rc=$?
+chk_rc 0 "$rc" "the developer can edit source"
+out="$(ws "$ORCH_REPO/src/calc.py" code-reviewer)"; rc=$?
+chk_rc 2 "$rc" "a code-reviewer contributes information, never actions"
 out="$(ws "$ORCH_REPO/src/calc.py" '')"; rc=$?
 chk_rc 0 "$rc" "an unroled session is not confined by accident"
 
@@ -164,9 +164,9 @@ chk_rc 0 "$rc" "an unroled session is not confined by accident"
 # refuses a write the role is entitled to make — on one platform only.
 printf '\nwrite scope through a symlinked path:\n'
 ln -s "$ORCH_REPO" "$WORK/link-to-repo" 2>/dev/null
-out="$(ws "$WORK/link-to-repo/docs/features/F002-gates/design.md" conductor)"; rc=$?
+out="$(ws "$WORK/link-to-repo/docs/features/F002-gates/design.md" director)"; rc=$?
 chk_rc 0 "$rc" "an allowed path reached through a symlink is still allowed"
-out="$(ws "$WORK/link-to-repo/src/calc.py" conductor)"; rc=$?
+out="$(ws "$WORK/link-to-repo/src/calc.py" director)"; rc=$?
 chk_rc 2 "$rc" "and a denied path reached through a symlink is still denied"
 
 finish gates

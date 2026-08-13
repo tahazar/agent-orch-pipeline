@@ -1,10 +1,11 @@
 #!/bin/bash
 # ledger.sh - the append-only event and cost record.
 #
-# v1 had no instrumentation. Its token accounting was agents typing "~13k
-# (est.)" at each other and a cost report an LLM wrote from memory. Every
-# number in `orch report` comes from this file or from a session transcript,
-# and nothing in orch asks a model how much it spent.
+# A pipeline with no instrumentation cannot answer whether it helped, and
+# agents typing "~13k (est.)" at each other is not instrumentation — neither is
+# a cost report an LLM wrote from memory. Every number in `orch report` comes
+# from this file or from a session transcript, and nothing in orch asks a model
+# how much it spent.
 #
 # One ledger per feature at docs/features/<F>/ledger.jsonl, plus
 # docs/features/_orch/ledger.jsonl for events that happen outside a feature.

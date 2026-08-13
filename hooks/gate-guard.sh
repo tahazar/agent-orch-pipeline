@@ -1,11 +1,10 @@
 #!/bin/bash
 # gate-guard.sh - PreToolUse. Blocks a merge, push, or PR without approval.
 #
-# v1 wired SessionStart, UserPromptSubmit, Notification and Stop, and every
-# handler exited 0 on every branch: they set border colours and rang bells.
 # Claude Code's own gate-strength ranking puts a hook returning exit 2 above an
-# in-prompt instruction [P1][P5], and v1 never once used the mechanism for what
-# it is for.
+# in-prompt instruction [P1][P5]. It is easy to wire a full set of hooks that
+# only ever exit 0 — setting colours, ringing bells — and believe the boundary
+# is enforced. A hook that cannot say no is decoration.
 #
 # Exit 2 with the reason on stderr; stderr reaches the model as feedback, so
 # the reason has to be actionable rather than merely disapproving.

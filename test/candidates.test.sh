@@ -59,14 +59,14 @@ chk $? "and its content is not visible from the main checkout"
 # property we DO own: nothing in orch hands a candidate a path out. Plus
 # write-scope refuses a test-path edit even inside the worktree.
 out="$(printf '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"%s"}}' \
-        "$ROOT/c1/test/test_calc.py" | ORCH_ROLE=builder "$ORCH_ROOT/hooks/write-scope.sh" 2>&1)"; rc=$?
+        "$ROOT/c1/test/test_calc.py" | ORCH_ROLE=developer "$ORCH_ROOT/hooks/write-scope.sh" 2>&1)"; rc=$?
 chk_rc 2 "$rc" "a candidate still cannot edit tests inside its own worktree"
 
 esc=0
 grep -rn "ORCH_REPO" "$ROOT"/c*/docs/features/F010-bestofn/APPROACH.md >/dev/null 2>&1 && esc=1
 [ "$esc" = "0" ]; chk $? "no candidate is handed the main checkout's path"
 
-# A worktree-isolated builder runs with CLAUDE_PROJECT_DIR still pointing at
+# A worktree-isolated developer runs with CLAUDE_PROJECT_DIR still pointing at
 # the main checkout. If orch resolved the repo from that env var, the
 # candidate's evidence would be written to a checkout the platform forbids it
 # from touching — the attestation would vanish and every gate would read as

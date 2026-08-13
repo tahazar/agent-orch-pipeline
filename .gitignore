@@ -1,12 +1,11 @@
-# Rendered per-role settings: generated from settings/templates/*.json.in by
-# build-prompts.sh, and machine-specific (hook commands carry this checkout's
-# absolute path). The templates are the reviewable source.
-/settings/role-*.json
-
 # Scratch output from test runs.
 /test/.tmp/
 
-# orch v2 working state: candidate and baseline worktrees, and the current
+# orch working state: candidate and baseline worktrees, and the current
 # feature marker. The artifacts these produce live in docs/features/ and ARE
 # committed; the worktrees themselves are scratch.
 /.orch/
+
+# Local, machine-specific Claude Code settings. The project settings that orch
+# installs are committed; this is the per-developer override alongside them.
+/.claude/settings.local.json

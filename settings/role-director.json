@@ -1,23 +1,23 @@
 {
   "$comment": [
-    "Conductor. Owns the task list and the merge, and writes nothing outside",
+    "Director. Owns the task list and the merge, and writes nothing outside",
     "docs/features/**.",
     "",
-    "v1's conductor shipped with \"deny\": [] — the single widest hole in that",
-    "system. The role that could merge was also the role that could edit any file",
-    "in the repo, which made every other permission boundary decorative: the",
-    "conductor could make a change itself and then approve it.",
+    "An empty \"deny\" here is the widest hole this system can have. The role that",
+    "can merge must not also be the role that can edit any file in the repo, or",
+    "every other permission boundary becomes decorative: the director could make",
+    "a change itself and then approve it.",
     "",
     "The path confinement is enforced by hooks/write-scope.sh with",
-    "ORCH_ROLE=conductor, not by the globs here — in Claude Code deny beats allow,",
+    "ORCH_ROLE=director, not by the globs here — in Claude Code deny beats allow,",
     "so 'deny everything, allow one prefix' cannot be expressed as a rule. What",
     "remains here are the denies that are absolute for every role: history",
     "rewriting and recursive deletion.",
     "",
     "Launch:",
-    "  ORCH_ROLE=conductor CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
+    "  ORCH_ROLE=director CLAUDE_CODE_TASK_LIST_ID=orch-<repo> \\",
     "  claude --settings settings.json \\",
-    "         --settings settings/role-conductor.json"
+    "         --settings settings/role-director.json"
   ],
   "permissions": {
     "allow": [

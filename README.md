@@ -4,8 +4,8 @@ A serial multi-agent development workflow for [Claude Code](https://claude.com/c
 running locally on macOS as tmux panes.
 
 It builds a design document out **one feature at a time**. Six agents - a
-`conductor`, an adversarial `arbiter`, a per-feature `foreman`, and a three-agent
-crew of `prover`, `inspector`, and `builder` - coordinate by shelling out to a
+`director`, an adversarial `auditor`, a per-feature `foreman`, and a three-agent
+crew of `test-engineer`, `inspector`, and `developer` - coordinate by shelling out to a
 `pipeline` CLI that wraps tmux. Every inter-agent message ends in a
 machine-parseable `[SIGNAL:...]` tag.
 
@@ -71,7 +71,7 @@ argument.
 | rung | configuration | entry |
 |---|---|---|
 | 0 · solo | one session, attested gates | default |
-| 1 · solo + review | reviewer ensemble on the diff | one signal, or a diff over 3 files |
+| 1 · solo + review | code-reviewer ensemble on the diff | one signal, or a diff over 3 files |
 | 2 · split | test author separate from implementer | a blocking finding, or two signals |
 | 3 · best-of-N | N builders in worktrees, mechanical selection | a failed repair cycle, or oscillation |
 | 4 · diagnose | K competing hypotheses, execution selects | a second failure on the same finding |
@@ -90,10 +90,10 @@ are discarded, survivors ranked by attested numbers. Exactly one merges; all N
 are archived with their gate results, which is what later lets you ask whether
 N=3 beat N=1.
 
-**3 · Heterogeneous reviewer ensemble** (rung 1+). Two or three reviewers, each
+**3 · Heterogeneous code-reviewer ensemble** (rung 1+). Two or three reviewers, each
 a distinct (model, lens) pair, each with fresh context and only the diff.
 Individual review tools caught 20–32% of defects; the union of four different
-ones reached 41.5% [P8]. Conflicts are never voted on — they go to the arbiter,
+ones reached 41.5% [P8]. Conflicts are never voted on — they go to the auditor,
 who settles them by running something.
 
 **4 · Anti-anchoring diagnosis** (rung 4). K read-only agents, each handed a
@@ -110,15 +110,15 @@ Nothing in `orch` relies on a prompt asking nicely.
 |---|---|
 | no merge without approval for the current sha | `hooks/gate-guard.sh`, exit 2 |
 | no stage completes on an unattested claim | `hooks/task-guard.sh`, exit 2 |
-| the conductor cannot write source | `hooks/write-scope.sh`, exit 2 |
-| the builder cannot edit the tests it must satisfy | `hooks/write-scope.sh`, exit 2 |
+| the director cannot write source | `hooks/write-scope.sh`, exit 2 |
+| the developer cannot edit the tests it must satisfy | `hooks/write-scope.sh`, exit 2 |
 | reviewers cannot act, only report | `disallowedTools` in the agent definition |
 | candidates cannot escape their worktree | `isolation: worktree`, platform-enforced |
 | every evidence claim is a real exit code | `orch run` is the only writer of `evidence.jsonl` |
 
 `orch/test/agent-lint.sh` fails the build if any invariant sentence in a role
 definition does not name a mechanism that exists and is wired. v1 checked some
-of this and missed the arbiter's drift entirely — which is the failure mode: a
+of this and missed the auditor's drift entirely — which is the failure mode: a
 prompt that promises a boundary nothing enforces reads exactly like one that is
 enforced, right up until it matters.
 
@@ -147,7 +147,7 @@ is deleted.
 
 `orch report` reads `ledger.jsonl` and the session transcripts and prints, per
 feature and per rung: cost, wall clock, `critique_uptake_rate` against the
-33.6% baseline [P11], per-reviewer unique-find rate, gate yield,
+33.6% baseline [P11], per-code-reviewer unique-find rate, gate yield,
 `escalation_precision`, and best-of-N selection margins. Where it has no data
 it says so rather than printing a zero.
 
@@ -224,7 +224,7 @@ Two further deviations are ours, not the CLI's:
    selection uses it; otherwise it falls back to gates passed, then diff size.
 
 4. **Role write-scoping is a hook, not a permission rule.** §5 calls for the
-   conductor to be denied `Edit`/`Write` outside `docs/features/**`. In Claude
+   director to be denied `Edit`/`Write` outside `docs/features/**`. In Claude
    Code deny beats allow, so "deny everything, allow one prefix" denies
    everything. A denylist of the rest is fragile in the wrong direction — the
    path you forgot is the one that gets written. `hooks/write-scope.sh` states
@@ -304,12 +304,12 @@ each in its own git worktree. When in doubt, the orchestrator does not group.
 
 | Agent | Model | Role |
 |---|---|---|
-| `conductor` | opus | Snapshots the request, decomposes the design, spawns one foreman at a time, gates with arbiter, squash-merges to the base branch, opens the final PR |
-| `arbiter` | opus | Adversarial gate reviewer at every stage. Reviews the decomposition, each plan and tier, spot-checks completed work by reading the diff line by line, reviews contract changes, and does a final whole-system review against the original request. Idle between gates |
+| `director` | opus | Snapshots the request, decomposes the design, spawns one foreman at a time, gates with auditor, squash-merges to the base branch, opens the final PR |
+| `auditor` | opus | Adversarial gate code-reviewer at every stage. Reviews the decomposition, each plan and tier, spot-checks completed work by reading the diff line by line, reviews contract changes, and does a final whole-system review against the original request. Idle between gates |
 | `foreman` | opus | Runs one feature's team. Writes the plan, picks the tier, drives the playbook, spawns and kills workers |
-| `prover` | opus | Writes failing tests from the requirements |
+| `test-engineer` | opus | Writes failing tests from the requirements |
 | `inspector` | sonnet | Audits the tests, then reviews the implementation |
-| `builder` | sonnet | Makes failing tests pass. Never modifies tests or contracts |
+| `developer` | sonnet | Makes failing tests pass. Never modifies tests or contracts |
 
 You are a gated decision-maker, not a driver: kickoff, decomposition approval,
 per-feature plan approval, and deadlock arbitration. Everything else is
@@ -318,14 +318,14 @@ autonomous.
 ## Workflow tiers
 
 The foreman picks one per feature and records it in `plan.md` with a justification.
-Arbiter reviews the choice for honesty; you can override it at the approval
+Auditor reviews the choice for honesty; you can override it at the approval
 gate.
 
 | Tier | Typical work | Workers |
 |---|---|---|
 | `direct` | doc / config / rename / one-liner | none |
-| `lite` | bug fix, small change | builder + inspector |
-| `full-tdd` | real feature with logic | prover + inspector + builder |
+| `lite` | bug fix, small change | developer + inspector |
+| `full-tdd` | real feature with logic | test-engineer + inspector + developer |
 
 ---
 
@@ -369,10 +369,10 @@ $EDITOR docs/specs/my-design.md
 Two rules:
 
 - **Check out a working branch first.** Whatever branch you are on at kickoff
-  becomes the integration branch. If it is `main` or `master`, conductor stops and
+  becomes the integration branch. If it is `main` or `master`, director stops and
   asks you to switch - it will not pick a branch name for you.
 - **Never stage your design under `docs/features/`.** That whole tree is
-  conductor-owned. Put designs in `docs/specs/`.
+  director-owned. Put designs in `docs/specs/`.
 
 Optional: `docs/steering/code-conventions.md` is read by every agent and is
 **binding** where it conflicts with `CLAUDE.md` or `AGENTS.md`.
@@ -380,20 +380,20 @@ Optional: `docs/steering/code-conventions.md` is read by every agent and is
 ## Run a session
 
 ```bash
-pipeline start --session mything --agents "conductor,arbiter"
+pipeline start --session mything --agents "director,auditor"
 pipeline attach --session mything          # optional: watch it
 ```
 
 ### Normal mode - ends with a PR
 
 ```bash
-pipeline tell conductor "Build docs/specs/my-design.md. [SIGNAL:KICKOFF]"
+pipeline tell director "Build docs/specs/my-design.md. [SIGNAL:KICKOFF]"
 ```
 
 ### Test mode - no PR, never touches main
 
 ```bash
-pipeline tell conductor "Build docs/specs/my-design.md. [SIGNAL:KICKOFF mode=test]"
+pipeline tell director "Build docs/specs/my-design.md. [SIGNAL:KICKOFF mode=test]"
 ```
 
 The mode is written into `session.md` at kickoff and read from there on every
@@ -415,9 +415,9 @@ Everything else:
 pipeline status                    # who is alive, and whether they are wedged
 pipeline logs --follow             # live message audit trail
 pipeline report                    # timeline, protocol violations, delivery problems
-pipeline peek conductor            # read an agent's screen as plain text
+pipeline peek director            # read an agent's screen as plain text
 pipeline doctor                    # diagnose the install: claude path, flags, role files
-pipeline tell conductor "status"   # ask the conductor directly
+pipeline tell director "status"   # ask the director directly
 ```
 
 ### Pane state
@@ -474,7 +474,7 @@ started it in.
   another. Or skip attaching entirely: `pipeline status`, `logs --follow`,
   `report`, and `status.md` cover everything, since all agent state is on disk.
 - **Don't point `cmux claude-teams` at the same checkout.** Both it and the
-  conductor expect to own agent lifecycle and git state.
+  director expect to own agent lifecycle and git state.
 - cmux's sidebar shows the branch per pane, which pairs well with the serial
   model: the branch you see is the feature currently being built.
 
@@ -490,15 +490,15 @@ friction-free loop needs no tmux UI, no mouse, and no wide screen:
 ```bash
 cat docs/features/current/status.md   # where is everything
 pipeline status                        # who is alive
-pipeline peek conductor                # read an agent's screen as plain text
-pipeline peek builder-F002 --lines 80
+pipeline peek director                # read an agent's screen as plain text
+pipeline peek developer-F002 --lines 80
 pipeline logs --follow
 ```
 
 Answering a gate is a single command:
 
 ```bash
-pipeline tell conductor "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+pipeline tell director "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
 ```
 
 If you do attach, six tiled panes are unreadable on a phone — use `prefix + z`
@@ -509,14 +509,14 @@ on the alternate screen and the terminal app's own scrollback is empty.
 ### Answering a gate
 
 ```bash
-pipeline tell conductor "Decomposition looks right, go ahead. [SIGNAL:DEV_APPROVE_DECOMPOSITION]"
-pipeline tell conductor "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
+pipeline tell director "Decomposition looks right, go ahead. [SIGNAL:DEV_APPROVE_DECOMPOSITION]"
+pipeline tell director "Approved. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser]"
 ```
 
 ### Overriding a tier
 
 ```bash
-pipeline tell conductor "F002 is not lite - the merge logic needs real tests. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser tier=full-tdd]"
+pipeline tell director "F002 is not lite - the merge logic needs real tests. [SIGNAL:DEV_APPROVE_PLAN feature=F002-parser tier=full-tdd]"
 ```
 
 ### Resuming after a dead pane
@@ -531,8 +531,8 @@ pipeline tell foreman-F002-parser "Respawned. Read docs/features/current/F002-pa
 ### Stopping
 
 ```bash
-pipeline tell conductor "Stop here, leave everything on disk. [SIGNAL:HOLD]"
-pipeline kill conductor && pipeline kill arbiter
+pipeline tell director "Stop here, leave everything on disk. [SIGNAL:HOLD]"
+pipeline kill director && pipeline kill auditor
 ```
 
 ---
@@ -542,36 +542,36 @@ pipeline kill conductor && pipeline kill arbiter
 A two-feature design (one `direct`, one `lite`) in test mode:
 
 ```
-you        -> conductor   Build docs/specs/toy-design.md. [SIGNAL:KICKOFF mode=test]
-conductor                 captures base=work/toy, freezes request.md, decomposes
+you        -> director   Build docs/specs/toy-design.md. [SIGNAL:KICKOFF mode=test]
+director                 captures base=work/toy, freezes request.md, decomposes
                           into F001-config-file and F002-off-by-one
-conductor  -> arbiter     [SIGNAL:DECOMPOSITION_READY]                    GATE 1a
-arbiter    -> conductor   [SIGNAL:APPROVED]                     (bare = decomposition)
-conductor  -> you         asks for approval
-you        -> conductor   [SIGNAL:DEV_APPROVE_DECOMPOSITION]
+director  -> auditor     [SIGNAL:DECOMPOSITION_READY]                    GATE 1a
+auditor    -> director   [SIGNAL:APPROVED]                     (bare = decomposition)
+director  -> you         asks for approval
+you        -> director   [SIGNAL:DEV_APPROVE_DECOMPOSITION]
 
-conductor                 branches feature/F001-config-file, spawns the foreman
-conductor  -> foreman     [SIGNAL:FEATURE_START feature=F001-config-file]
-foreman    -> conductor   [SIGNAL:PLAN_READY feature=F001-config-file]  tier: direct
-conductor  -> arbiter     [SIGNAL:PLAN_REVIEW_READY feature=F001-config-file]  GATE 1b
-arbiter    -> conductor   [SIGNAL:APPROVED feature=F001-config-file]
-you        -> conductor   [SIGNAL:DEV_APPROVE_PLAN feature=F001-config-file]
-conductor  -> foreman     [SIGNAL:PLAN_APPROVED feature=F001-config-file]
+director                 branches feature/F001-config-file, spawns the foreman
+director  -> foreman     [SIGNAL:FEATURE_START feature=F001-config-file]
+foreman    -> director   [SIGNAL:PLAN_READY feature=F001-config-file]  tier: direct
+director  -> auditor     [SIGNAL:PLAN_REVIEW_READY feature=F001-config-file]  GATE 1b
+auditor    -> director   [SIGNAL:APPROVED feature=F001-config-file]
+you        -> director   [SIGNAL:DEV_APPROVE_PLAN feature=F001-config-file]
+director  -> foreman     [SIGNAL:PLAN_APPROVED feature=F001-config-file]
 foreman                   does the work itself - the direct tier spawns no crew
-foreman    -> conductor   [SIGNAL:FEATURE_COMPLETE feature=F001-config-file]
-conductor  -> arbiter     [SIGNAL:WORK_REVIEW_READY feature=F001-config-file]  GATE 2
-arbiter                   writes work-review.md with the evidence header
-arbiter    -> conductor   [SIGNAL:WORK_APPROVED feature=F001-config-file]
-conductor                 validates the header, squash-merges the reviewed SHA
-conductor  -> foreman     [SIGNAL:KILL_WORKERS feature=F001-config-file]
+foreman    -> director   [SIGNAL:FEATURE_COMPLETE feature=F001-config-file]
+director  -> auditor     [SIGNAL:WORK_REVIEW_READY feature=F001-config-file]  GATE 2
+auditor                   writes work-review.md with the evidence header
+auditor    -> director   [SIGNAL:WORK_APPROVED feature=F001-config-file]
+director                 validates the header, squash-merges the reviewed SHA
+director  -> foreman     [SIGNAL:KILL_WORKERS feature=F001-config-file]
 
 ...                       F002-off-by-one repeats at tier lite, where the foreman
-                          spawns builder + inspector as builder-F002-off-by-one
+                          spawns developer + inspector as developer-F002-off-by-one
                           and inspector-F002-off-by-one
 
-conductor  -> arbiter     [SIGNAL:FINAL_REVIEW_READY]                  FINAL GATE
-arbiter    -> conductor   [SIGNAL:FINAL_APPROVED]
-conductor  -> you         test mode: no PR; work is on work/toy, here is the
+director  -> auditor     [SIGNAL:FINAL_REVIEW_READY]                  FINAL GATE
+auditor    -> director   [SIGNAL:FINAL_APPROVED]
+director  -> you         test mode: no PR; work is on work/toy, here is the
                           manual follow-up
 ```
 
@@ -590,7 +590,7 @@ after verifying the text actually landed in the target pane.
 
 If a verdict never arrived but the sender looks done, the artifact is the
 fallback: `work-review.md`, `review.md`, and `plan-review.md` all carry their
-verdict on disk *before* the signal goes out. Read it, then tell conductor what it
+verdict on disk *before* the signal goes out. Read it, then tell director what it
 says.
 
 ```bash
@@ -623,7 +623,7 @@ both, under "agent panes".
 ### An agent exits immediately / "no server running"
 
 ```
-pipeline: conductor exited immediately (status 3) - it never started.
+pipeline: director exited immediately (status 3) - it never started.
 Its pane said:
   error: unknown option '--name'
 Run `pipeline doctor` to see the exact command and environment.
@@ -638,7 +638,7 @@ that command into a shell to reproduce it by hand.
 If you saw the older, blanker version of this failure:
 
 ```
-Spawned conductor (conductor, opus)
+Spawned director (director, opus)
 no server running on /private/tmp/tmux-501/default
 ```
 
@@ -665,7 +665,7 @@ add it and re-run `./build-prompts.sh`.
 
 ```
 ALIAS      ROLE   MODEL  EFFORT  PANE  PANE-STATE  AGENT-STATE
-conductor       conductor   opus   -       %0    alive       WEDGED
+director       director   opus   -       %0    alive       WEDGED
 ```
 
 `WEDGED` means the pane is up but no Claude session is registered under that
@@ -694,9 +694,9 @@ and resend - nothing is silently dropped.
 EVIDENCE_INVALID F002-parser reason=stale-sha
 ```
 
-Arbiter approved a commit that is no longer the branch tip - the branch moved
+Auditor approved a commit that is no longer the branch tip - the branch moved
 after the review, so the approval covers work that is not what would be merged.
-The conductor re-requests the gate. This does **not** consume a spot-check cycle.
+The director re-requests the gate. This does **not** consume a spot-check cycle.
 
 ---
 
@@ -706,7 +706,7 @@ The conductor re-requests the gate. This does **not** consume a spot-check cycle
 pipeline                    the CLI (bash, tmux + jq only)
 context/                    prompt sources, single-sourced across roles
   workflow.md               shared by all six roles
-  workflow-coordination.md  conductor, arbiter, foreman ONLY
+  workflow-coordination.md  director, auditor, foreman ONLY
   playbook-{direct,lite,tdd}.md
   identity/<role>.md        identity + INVARIANTS
   <role>-role.md            phase-by-phase protocol
@@ -726,9 +726,9 @@ Edit files in `context/`, never in `prompts/` - then:
 ### Invariants are enforced, not just requested
 
 Each role's prompt states its invariants, and its settings file enforces the
-ones that can be: arbiter and the inspector are denied `Edit` outright; builder is
-denied writes to test paths and contracts; the prover is denied writes to
-implementation code; only conductor may push or run `gh`. `test/prompt-lint.sh` fails
+ones that can be: auditor and the inspector are denied `Edit` outright; developer is
+denied writes to test paths and contracts; the test-engineer is denied writes to
+implementation code; only director may push or run `gh`. `test/prompt-lint.sh` fails
 if a prompt's stated invariant and its mechanical deny ever drift apart.
 
 ### Tests
@@ -754,7 +754,7 @@ prompts - that is what a live run on your own machine is for.
 
 - **Per-role MCP and effort.** Edit `role_default_effort` / `role_default_mcp`
   at the top of `pipeline`, or pass `--effort` / `--mcp-config` to
-  `pipeline spawn`. Arbiter defaults to `xhigh`.
+  `pipeline spawn`. Auditor defaults to `xhigh`.
 - **`pipeline watch`** flags a stalled session and notifies you, so a blocking
   gate cannot wait silently forever.
 - **`SendMessage`/`ListAgents`.** v1 deliberately does not use Claude Code's

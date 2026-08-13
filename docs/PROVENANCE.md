@@ -155,8 +155,8 @@ repository that acts on it. **All are `CITATION MISSING`.**
   gate-strength ranking. *Acts on:* `orch/lib/diagnose.sh`, all four gate hooks.
 
 - **[P2]** — `CITATION MISSING`. Reviewers should get fresh context and see only
-  the diff plus criteria, never the builder's trace. *Acts on:* invariant 3,
-  `orch/agents/reviewer.md`.
+  the diff plus criteria, never the developer's trace. *Acts on:* invariant 3,
+  `orch/agents/code-reviewer.md`.
 
 - **[P3]** — `CITATION MISSING`. A 15× cost multiplier for multi-agent
   orchestration, later revised down. *Acts on:* the comparison line in
@@ -165,7 +165,7 @@ repository that acts on it. **All are `CITATION MISSING`.**
 - **[P4]** — `CITATION MISSING`. Revised multiplier of 3–10×. *Acts on:* the
   same comparison line; also cited for "the cheapest path is the default".
 
-- **[P5]** — `CITATION MISSING`. Reviewer context isolation; gate strength
+- **[P5]** — `CITATION MISSING`. Code-reviewer context isolation; gate strength
   ranking. *Acts on:* invariant 3, `orch/settings.json`.
 
 - **[P6] [P7]** — `CITATION MISSING`. Every gate backed by an external oracle.
@@ -174,15 +174,15 @@ repository that acts on it. **All are `CITATION MISSING`.**
 - **[P8]** — `CITATION MISSING`. On a 2026 code-review agent benchmark,
   individual tools caught 20–32% of defects while the union of four different
   ones reached 41.5%, with 84% of emitted comments judged useful. *Acts on:* the
-  heterogeneous reviewer ensemble; the union assertion in
+  heterogeneous code-reviewer ensemble; the union assertion in
   `orch/test/findings.test.sh`.
 
 - **[P10]** — `CITATION MISSING`. Calibrated ensembles of diverse weak verifiers
   beat single judges by 13–18 points; a single LM judge produces "noisy, biased,
   and poorly calibrated scores". *Acts on:* why the ensemble is
-  (model × lens) diverse rather than N copies of one reviewer.
+  (model × lens) diverse rather than N copies of one code-reviewer.
 
-- **[P11]** — `CITATION MISSING`. A pipeline whose reviewer had better precision
+- **[P11]** — `CITATION MISSING`. A pipeline whose code-reviewer had better precision
   (0.861 vs 0.644) produced worse outcomes (85.2% vs 89.2%), because the solver
   acted on verified-useful critique only **33.6%** of the time; injecting
   guidance into the solver's working context recovered most of the loss.
@@ -192,7 +192,7 @@ repository that acts on it. **All are `CITATION MISSING`.**
 - **[P12]** — `CITATION MISSING`. Debate raised inter-agent consensus from 81.7%
   to 90.1% while accuracy fell — worst case 48.3% → 20.7% — with sycophancy to
   85.5% and correct reasoning discarded at up to 32.3 points. *Acts on:*
-  invariant 5; `orch/agents/arbiter.md`.
+  invariant 5; `orch/agents/auditor.md`.
 
 - **[P13]** — `CITATION MISSING`. Competitive debate is provably cheap talk,
   underperforming a single agent by up to 15 points on error detection.
@@ -226,7 +226,7 @@ repository that acts on it. **All are `CITATION MISSING`.**
 - **[P25]** — `CITATION MISSING`. The blackboard pattern. *Acts on:* the
   `docs/features/**` artifact contract, carried unchanged from v1.
 
-- **[P30]** — `CITATION MISSING`. Reviewer context isolation. *Acts on:*
+- **[P30]** — `CITATION MISSING`. Code-reviewer context isolation. *Acts on:*
   invariant 3.
 
 ---

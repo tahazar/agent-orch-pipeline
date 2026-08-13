@@ -1,14 +1,15 @@
 #!/bin/bash
-# orch - the v2 orchestrator CLI.
+# orch - the orchestrator CLI.
 #
-# v1's thesis was right and its transport was a liability: 1,252 lines of bash
-# typing keystrokes into tmux panes, with no locking, a message-id race that
-# silently discarded real messages, and a verification path that dead-lettered
-# messages it had actually delivered. Claude Code now ships the coordination
-# layer, so v2 deletes the transport and keeps the protocol.
+# orch owns no transport. Claude Code ships the coordination layer — a shared,
+# file-locked task list and cross-session messaging — so this CLI is the human
+# entry point, the attested executor, and nothing else. Writing our own message
+# bus is how a pipeline acquires a message-id race and a verification path that
+# dead-letters what it already delivered.
 #
-# What that frees the budget for is the part that matters: measuring whether
-# orchestrating helped. The published record says it usually does not.
+# What that frees the budget for is the part that usually goes unmeasured:
+# whether orchestrating helped at all. `orch report` answers it from recorded
+# numbers, and `orch lab` runs the controlled comparison on demand.
 #
 # Portability: macOS stock /bin/bash 3.2. Dependencies: git, jq.
 
@@ -56,7 +57,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
 
   orch findings add <F> --raised-by R --severity S --file P --line N \
                         --claim C --consequence Q
-  orch findings deliver <F>            the verbatim text for the builder's next turn
+  orch findings deliver <F>            the verbatim text for the developer's next turn
   orch findings dispute <F> <id> --reason WHY
   orch findings verify <F>             classify open findings; prints uptake
   orch findings yield [F|--all]        per-reviewer unique-find rate

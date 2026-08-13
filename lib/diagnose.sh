@@ -29,7 +29,7 @@ diagnose_seed() {  # diagnose_seed <index>
   case "$1" in
     1) printf 'the-fix-is-wrong|The implementation does not do what the requirement asks. Start from the assumption that the test is right and the code is wrong.' ;;
     2) printf 'the-test-is-wrong|The test does not test the requirement - wrong fixture, wrong assertion, or it would pass without the fix. Start from the assumption that the code is right.' ;;
-    3) printf 'the-requirement-is-ambiguous|The requirement admits two readings and the builder and the reviewer picked different ones. Start from the assumption that both the code and the test are internally consistent.' ;;
+    3) printf 'the-requirement-is-ambiguous|The requirement admits two readings and the developer and the code-reviewer picked different ones. Start from the assumption that both the code and the test are internally consistent.' ;;
     *) printf 'open-%s|Neither the fix, the test, nor the requirement is at fault. Look at the environment, the build, ordering, or state left behind by another test.' "$1" ;;
   esac
 }

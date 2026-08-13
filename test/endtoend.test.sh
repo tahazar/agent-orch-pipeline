@@ -5,7 +5,7 @@
 # ledger coverage. This is also the ablation baseline — rung 0 is what every
 # other rung has to beat.
 #
-# There is no model in this test. A stub "builder" edits the file; every gate,
+# There is no model in this test. A stub "developer" edits the file; every gate,
 # every attestation and every block is the real code path. What this proves is
 # that the protocol holds and that a feature cannot reach the base branch
 # without passing through it — not that an LLM follows the prompts.
@@ -24,7 +24,7 @@ guard() {
   GOUT="$(printf '%s' "$2" | "$ORCH_ROOT/hooks/$1" 2>&1)"; RC=$?
 }
 
-# The artifacts orch writes are real files in the tree. A conductor commits them
+# The artifacts orch writes are real files in the tree. A director commits them
 # as part of the stage; the test does the same, so branch switches later on are
 # not fighting a dirty worktree.
 commit_artifacts() {
@@ -32,7 +32,7 @@ commit_artifacts() {
   git diff --cached --quiet || git commit -q -m "orch: ${1:-artifacts}"
 }
 MERGE='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git merge --squash feature/F001"}}'
-TASK_BUILD='{"hook_event_name":"TaskCompleted","task":{"subject":"builder: implement F001","metadata":{"orch":{"feature":"F001-mean","requires":"tests-pass"}}}}'
+TASK_BUILD='{"hook_event_name":"TaskCompleted","task":{"subject":"developer: implement F001","metadata":{"orch":{"feature":"F001-mean","requires":"tests-pass"}}}}'
 TASK_REVIEW='{"hook_event_name":"TaskCompleted","task":{"subject":"review F001","metadata":{"orch":{"feature":"F001-mean","requires":"review-clean"}}}}'
 
 printf '__pycache__/\n*.pyc\n' > .gitignore
@@ -75,7 +75,7 @@ git checkout -q -b feature/F001
 "$ORCH" run --feature F001-mean --label tests -- ./runtests.sh >/dev/null 2>&1
 RC=$?
 [ "$RC" != "0" ]; chk $? "the tests fail before the implementation exists"
-guard task-guard.sh '{"hook_event_name":"TaskCompleted","task":{"subject":"prover: red phase","metadata":{"orch":{"feature":"F001-mean","requires":"tests-fail-correctly"}}}}' >/dev/null
+guard task-guard.sh '{"hook_event_name":"TaskCompleted","task":{"subject":"test-engineer: red phase","metadata":{"orch":{"feature":"F001-mean","requires":"tests-fail-correctly"}}}}' >/dev/null
 chk_rc 0 "$RC" "and the red phase is therefore attested"
 
 printf '\nno merge before anything else:\n'
@@ -84,9 +84,9 @@ chk_rc 2 "$RC" "a merge attempt here is blocked"
 
 printf '\nbuild:\n'
 guard task-guard.sh "$TASK_BUILD" >/dev/null
-chk_rc 2 "$RC" "the builder cannot mark its task done while the oracle is red"
+chk_rc 2 "$RC" "the developer cannot mark its task done while the oracle is red"
 
-# The stub builder does the work.
+# The stub developer does the work.
 cat > src/calc.py <<'EOF'
 def add(a, b):
     return a + b
@@ -104,7 +104,7 @@ chk $? "build is attested green"
 "$ORCH" run --feature F001-mean --label tests -- ./runtests.sh >/dev/null 2>&1
 chk $? "tests are attested green"
 guard task-guard.sh "$TASK_BUILD" >/dev/null
-chk_rc 0 "$RC" "the builder's task now completes"
+chk_rc 0 "$RC" "the developer's task now completes"
 
 printf '\nreview:\n'
 fid="$("$ORCH" findings add F001-mean --raised-by correctness --severity blocking \
@@ -116,7 +116,7 @@ guard gate-guard.sh "$MERGE"
 chk_rc 2 "$RC" "and the merge is still blocked"
 
 out="$("$ORCH" findings deliver F001-mean)"
-contains "$out" "cannot distinguish an empty input" "the finding reaches the builder verbatim"
+contains "$out" "cannot distinguish an empty input" "the finding reaches the developer verbatim"
 
 "$ORCH" findings dispute F001-mean "$fid" --reason "requirement 2 states 0 explicitly; raising a defect against the spec is out of scope for this feature" >/dev/null 2>&1
 guard task-guard.sh "$TASK_REVIEW" >/dev/null
@@ -159,7 +159,7 @@ jq -e -s 'all(.[]; has("ts") and has("actor") and has("feature") and has("sha"))
 chk $? "every ledger row carries ts, actor, feature and sha"
 
 printf '\nno guessed numbers anywhere:\n'
-# The whole reason for the ledger: v1's cost accounting was agents typing
+# The whole reason for the ledger. The alternative is agents typing
 # "~13k (est.)" at each other. Nothing in the artifacts may contain an estimate.
 if grep -rn 'est\.\|~[0-9]*k tokens\|approximately [0-9]* tokens' docs/features/ 2>/dev/null; then
   bad "an estimated number leaked into the artifacts"

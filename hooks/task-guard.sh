@@ -4,12 +4,12 @@
 # The gates here are the ones that must hold before a stage is allowed to call
 # itself finished:
 #
-#   tests-fail-correctly  the prover's tests must FAIL before the code exists.
+#   tests-fail-correctly  the test-engineer's tests must FAIL before the code exists.
 #                         A test that passes before the implementation is a
 #                         broken test, and the red phase is the only moment you
 #                         can tell.
 #   build / tests-pass /
-#   no-regression         the builder's oracle must be green before review.
+#   no-regression         the developer's oracle must be green before review.
 #   review-clean          no blocking finding may still be open at merge.
 #
 # Each is backed by an external oracle (invariant 6): the hook reads
@@ -45,9 +45,9 @@ feature="$(printf '%s' "$payload" | jq -r '.task.metadata.orch.feature // ""' 2>
 gate="$meta_gate"
 if [ -z "$gate" ]; then
   case "$subject" in
-    *"red phase"*|*"failing test"*|*prover*) gate=tests-fail-correctly ;;
-    *implement*|*builder*|*build*)           gate=tests-pass ;;
-    *review*|*reviewer*)                     gate=review-clean ;;
+    *"red phase"*|*"failing test"*|*test-engineer*) gate=tests-fail-correctly ;;
+    *implement*|*developer*|*build*)           gate=tests-pass ;;
+    *review*|*code-reviewer*)                     gate=review-clean ;;
     *) exit 0 ;;
   esac
 fi
@@ -64,7 +64,7 @@ case "$gate" in
   tests-fail-correctly)
     if ! evidence_verify "$feature" tests --claim fail >/dev/null 2>&1; then
       block "the red phase is unattested" \
-"The prover's tests must be shown FAILING before the implementation exists.
+"The test-engineer's tests must be shown FAILING before the implementation exists.
 A test that passes now would be testing nothing, and you would never find out.
 
   orch run --feature $feature --label tests -- <your test command>
@@ -99,7 +99,7 @@ Fix each one, or dispute it with a reason:
 
   orch findings dispute $feature <id> --reason \"<why the finding is wrong>\"
 
-Disputing is a claim the arbiter can test. Silence is not."
+Disputing is a claim the auditor can test. Silence is not."
       fi
     fi
     ;;

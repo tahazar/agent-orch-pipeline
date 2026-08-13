@@ -118,7 +118,7 @@ _cand_metric() {  # _cand_metric <worktree> <feature> <label>
 #
 # Reads each candidate's own evidence.jsonl - candidates cannot write to the
 # main checkout, so their attestations live in their worktrees and the
-# conductor gathers them.
+# director gathers them.
 candidates_collect() {
   local feature="$1"; shift
   local gates="${*:-build tests}"
