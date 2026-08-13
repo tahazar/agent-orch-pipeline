@@ -203,7 +203,7 @@ director            owns the run, the merge, the human gate
 │  ├─ developer     makes them pass; cannot edit tests
 │  └─ code-reviewer fresh context, sees only the diff
 │
-└─ auditor          adversarial approval at every gate
+└─ auditor          adversarial approval — spawned fresh for each gate
 ```
 
 Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
@@ -215,6 +215,7 @@ Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
 | the director cannot write source | `hooks/write-scope.sh` |
 | the developer cannot edit the tests it must satisfy | `hooks/write-scope.sh` |
 | the code-reviewer cannot read the task list | `hooks/task-scope.sh` |
+| the code-reviewer and test-engineer read only the requirements | `hooks/artifact-scope.sh` |
 | the test-engineer cannot read the developer's tasks | `hooks/task-scope.sh` |
 | reviewers can report, never act | `disallowedTools` |
 | candidates cannot escape their worktree | `isolation: worktree` |
@@ -243,6 +244,8 @@ as failing an honest attempt.
 ```bash
 orch team status              # who is alive, and where
 orch peek developer           # read an agent's screen as text
+orch status show F001-…       # status.md, generated from the ledger — never authored
+orch team recycle developer   # fresh context after a compaction; state lives on disk
 orch watch                    # live state; no terminal UI needed
 orch report                   # cost, critique uptake, gate yield
 ```
@@ -311,7 +314,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-419 assertions across ten suites. No Claude session, no API key, no network.
+485 assertions across eleven suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 

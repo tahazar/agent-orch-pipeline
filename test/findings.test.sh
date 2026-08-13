@@ -111,4 +111,27 @@ uc="$(printf '%s' "$y" | jq -r '.[] | select(.reviewer=="correctness") | .unique
 [ "$uc" -lt "$(printf '%s' "$y" | jq -r '.[] | select(.reviewer=="correctness") | .raised')" ]
 chk $? "a finding both lenses raised counts as unique to neither"
 
+# --- re-review scope --------------------------------------------------------
+#
+# A repair loop is quadratic exactly when every cycle re-reads the whole
+# feature. The scope packet must shrink to the delta once a verdict exists.
+printf '\nre-review scope:\n'
+"$ORCH" feature start F015-scope --request "test fixture" >/dev/null 2>&1
+out="$("$ORCH" review scope F015-scope)"
+contains "$out" "FIRST review" "with no verdict on record, the first review is the whole diff"
+
+"$ORCH" findings add F015-scope --raised-by correctness --severity major \
+  --file src/calc.py --line 2 --claim "wrong" --consequence "bad" >/dev/null 2>&1
+out="$("$ORCH" review scope F015-scope)"
+contains "$out" "no delta to review" "a verdict with no commits after it has nothing in scope"
+
+printf 'def fixed(): pass\n' >> src/calc.py && git add -A && git commit -q -m "the fix"
+out="$("$ORCH" review scope F015-scope)"
+contains "$out" "re-review" "after the fix lands it is a re-review"
+contains "$out" "src/calc.py" "scoped to the files the fix touched"
+contains "$out" "Review the delta, not the feature" "and says so in exactly those terms"
+contains "$out" "wrong" "the open finding rides along verbatim"
+contains "$out" "approval stands" "and prior-verdict code is closed to relitigating"
+not_contains "$out" "README.md" "files untouched since the verdict are not in the packet"
+
 finish findings

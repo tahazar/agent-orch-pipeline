@@ -52,10 +52,25 @@ baseline_path() { printf '%s/baseline.json' "$(orch_feature_dir "$1")"; }
 # --------------------------------------------------------------------------
 
 report_feature_json() {  # report_feature_json <feature>
-  local feature="$1" led usage uptake yield base rung wall gates
+  local feature="$1" led usage uptake yield base rung wall gates roleuse words dlines
   led="$(ledger_read "$feature")"
   rung="$(escalate_rung "$feature")"
   usage="$(ledger_feature_usage "$feature")"
+  roleuse="$(ledger_feature_role_usage "$feature")"
+
+  # Artifact volume. The v1 session ran 301k words of coordination prose for
+  # 8.4k lines of code — ~36 words per line — and nothing was watching. The
+  # word count includes generated files deliberately: generation makes prose
+  # free to WRITE, and this measures what agents re-READ.
+  words="$(cat "$(orch_feature_dir "$feature")"/*.md 2>/dev/null | wc -w | tr -d ' ')"
+  dlines="$(printf '%s' "$led" | jq -s -r '
+    [.[] | select(type=="object" and .event=="feature.started")] | .[0].base // ""' 2>/dev/null)"
+  if [ -n "$dlines" ] && git -C "$ORCH_REPO" rev-parse --verify --quiet "$dlines" >/dev/null 2>&1; then
+    dlines="$(git -C "$ORCH_REPO" diff --shortstat "$dlines...HEAD" 2>/dev/null \
+      | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || printf '')"
+  else
+    dlines=''
+  fi
   uptake="$(findings_uptake "$feature")"
   yield="$(findings_reviewer_yield "$feature")"
   base="$(cat "$(baseline_path "$feature")" 2>/dev/null)"
@@ -86,6 +101,9 @@ report_feature_json() {  # report_feature_json <feature>
     --arg rung_name "$(escalate_rung_name "${rung:-0}")" \
     --argjson wall_clock_s "${wall:-0}" \
     --argjson usage "$usage" \
+    --argjson role_usage "${roleuse:-null}" \
+    --argjson artifact_words "${words:-0}" \
+    --argjson diff_lines "${dlines:-null}" \
     --argjson uptake "${uptake:-{\}}" \
     --argjson reviewers "${yield:-[]}" \
     --argjson gates "${gates:-null}" \
@@ -164,6 +182,18 @@ report_render() {  # report_render <feature|--all>
     | if ($d|length)==0 then "  never ran — if it stays that way after 20 features, delete rung 4 and say so in the README"
       else "  resolved: \([$d[]|select(.event=="diagnose.resolved")]|length), inconclusive: \([$d[]|select(.event=="diagnose.inconclusive")]|length)"
       end'
+
+  printf '\ncoordination overhead — v1 baselines to beat: 28%% of tokens, 36 words per diff line\n'
+  printf '%s' "$rows" | grep -v '^$' | jq -s -r '
+    .[] |
+    "  \(.feature): "
+    + (if .role_usage.share == null
+       then "no role-attributed usage yet"
+       else "coordination \(.role_usage.share)% of \(.role_usage.attributed) attributed output tokens" end)
+    + " · artifacts \(.artifact_words)w"
+    + (if .diff_lines == null or .diff_lines == 0
+       then " (no diff to compare against)"
+       else " / \(.diff_lines) diff lines = \((.artifact_words / .diff_lines * 10 | floor) / 10) w/line" end)'
 
   printf '\ncoordination transport — how much depended on the ephemeral path\n'
   printf '%s' "$rows" | grep -v '^$' | jq -s -r '
