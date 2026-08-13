@@ -31,25 +31,30 @@ decided X", that belongs in a task or an artifact.
 
 ## The ladder
 
-Every feature starts at rung 0 — one session implements, gates still apply.
-Most features should end there; the matched-budget evidence says orchestration
-pays only once the solo context is already degraded.
+One ladder, entered from two directions. Rungs 0–2 are tiers a human chooses
+before any work starts; rungs 3–5 are configurations only the evidence can ask
+for.
+
+| rung | tier | crew you add |
+|---|---|---|
+| 0 | `quick` | nothing — the developer writes its own tests |
+| 1 | `standard` | a code-reviewer on the diff, fresh context |
+| 2 | `strict` | a test-engineer authoring tests from requirements alone |
+| 3 | — | `orch candidates start` — N developers in worktrees, mechanical selection |
+| 4 | — | `orch diagnose start` — K hypotheses, execution selects |
+| 5 | — | hand it to the human with the ledger slice |
+
+**No crew is spawned until a tier is confirmed.** The tech-lead reads the
+request and runs `orch tier recommend`; a human answers with `orch tier
+confirm`. You do not pick the tier and you do not skip the confirmation.
 
     orch escalate check <feature>
 
-Run it after each stage. It reads the mechanical signals and escalates only if
-they warrant it. Do not escalate because a feature *feels* hard. If you believe
-the ladder is wrong, say so with the signal you disagree with — do not route
-around it.
-
-| rung | you add |
-|---|---|
-| 0 | nothing |
-| 1 | the code-reviewer ensemble on the diff |
-| 2 | a test-engineer authoring tests, separate context from the developer |
-| 3 | `orch candidates start` — N builders in worktrees, mechanical selection |
-| 4 | `orch diagnose start` — K hypotheses, execution selects |
-| 5 | hand it to the human with the ledger slice |
+Run it after each stage. It reads the mechanical signals and raises the rung
+only if they warrant it — including past a tier a human chose, because asking
+for `quick` sets a floor, not an exemption. Do not escalate because a feature
+*feels* hard. If you believe the ladder is wrong, say so with the signal you
+disagree with; do not route around it.
 
 ## Merging
 

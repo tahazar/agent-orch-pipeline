@@ -169,6 +169,6 @@ fi
 
 out="$("$ORCH" report F001-mean 2>&1)"
 contains "$out" "F001-mean" "the report renders the completed feature"
-contains "$out" "0·solo" "at rung 0 — the ablation baseline every other rung has to beat"
+contains "$out" "0·quick" "at rung 0 — the ablation baseline every other rung has to beat"
 
 finish endtoend

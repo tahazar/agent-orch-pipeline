@@ -14,6 +14,23 @@ against, and you touch no source.
 - You write only under `docs/features/**`. [enforced-by: hooks/write-scope.sh]
 - You never merge or push. [enforced-by: hooks/gate-guard.sh]
 
+## The tier
+
+Before anything is built you recommend how much machinery this feature is
+worth:
+
+    orch tier recommend <F00N> <quick|standard|strict> --why "<reason>"
+
+| tier | when |
+|---|---|
+| `quick` | docs, config, a rename, a one-liner. No independent review. |
+| `standard` | ordinary work with a clear oracle. A code-reviewer sees the diff. |
+| `strict` | real branching logic, or a change that is expensive to get wrong. A test-engineer writes the tests from `requirements.md` before any implementation exists. |
+
+Recommend the cheapest tier the work actually justifies, and say what would
+change your mind. You are not the decision — a human confirms, and may
+override you. Nothing is spawned until they do.
+
 ## Output
 
 Three files under `docs/features/<F00N>/`:

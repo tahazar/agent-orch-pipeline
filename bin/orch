@@ -40,8 +40,13 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch init                            print the environment two sessions must share
   orch roster                          live sessions, via `claude agents --json`
 
-  orch feature start <F00N> [--base B] begin a feature at rung 0
+  orch feature start <F00N> [--base B] [--tier T]   begin a feature
   orch feature current                 which feature hooks will attribute events to
+
+  orch tier recommend <F> <tier> --why WHY   the tech-lead proposes
+  orch tier confirm <F> [--tier T]     the human decides; sizes the crew
+  orch tier show <F>                   tier, recommendation, and crew, as JSON
+  orch tier crew [F]                   the roles this feature spawns
 
   orch run --feature F --label L -- CMD…      attested execution
   orch evidence verify --feature F --label L [--claim pass|fail] [--fresh]
@@ -174,17 +179,44 @@ EOF
       start)
         f="$(need "${1:-}" 'feature start: needs a feature id like F001-parser')"; shift
         orch_valid_feature "$f" || die "feature start: '$f' is not a valid feature id (F00N-slug)"
-        . "$ORCH_HOME/lib/escalate.sh"
+        . "$ORCH_HOME/lib/tier.sh"
+        t="$(opt tier '' "$@")"
+        [ -z "$t" ] || tier_valid "$t" || die "feature start: '$t' is not a tier (expected: $ORCH_TIERS)"
         mkdir -p "$(orch_feature_dir "$f")"
         orch_set_current_feature "$f"
         base="$(opt base "$(escalate_base_branch)" "$@")"
         printf '%s\n' "$base" > "$ORCH_REPO/.orch/base-branch"
         ORCH_LEDGER_FEATURE="$f" ledger_append feature.started base "$base" rung:raw 0
-        printf '%s starts at rung 0 (solo), base %s.\n' "$f" "$base"
-        printf 'Most features should end there. Escalation is by signal, not by preference.\n'
+        printf '%s started on base %s.\n' "$f" "$base"
+        if [ -n "$t" ]; then
+          tier_confirm "$f" "$t"
+        else
+          printf '\nNo tier yet, so no crew yet. The tech-lead reads the request and proposes one:\n'
+          printf '  orch tier recommend %s <%s> --why "..."\n' "$f" "$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')"
+          printf 'and you decide:\n  orch tier confirm %s\n' "$f"
+        fi
         ;;
       current) orch_current_feature; printf '\n' ;;
       *) die "feature: expected start or current" ;;
+    esac
+    ;;
+
+  tier)
+    . "$ORCH_HOME/lib/tier.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      recommend)
+        f="$(need "${1:-}" 'tier recommend: needs a feature')"; shift
+        t="$(need "${1:-}" "tier recommend: needs a tier ($ORCH_TIERS)")"; shift
+        tier_recommend "$f" "$t" "$(opt why '' "$@")"
+        ;;
+      confirm)
+        f="$(need "${1:-}" 'tier confirm: needs a feature')"; shift
+        tier_confirm "$f" "$(opt tier '' "$@")"
+        ;;
+      show) tier_show "${1:-$(orch_current_feature)}" | jq '.' ;;
+      crew) tier_crew "$(escalate_rung "${1:-$(orch_current_feature)}")"; printf '\n' ;;
+      *) die "tier: expected recommend, confirm, show, or crew" ;;
     esac
     ;;
 
@@ -278,8 +310,23 @@ EOF
         f="$(opt feature "$(orch_current_feature)" "$@")"
         k="$(opt kind '' "$@")"
         [ -n "$k" ] || die 'health observe: --kind is required'
-        shift 2>/dev/null || true
-        health_observe "$f" "$k" "$@"
+        # Everything except --feature/--kind becomes an observation field.
+        # This has to strip the flags it consumed rather than shifting a fixed
+        # number of times: a blind shift leaves `--feature F --kind K` in the
+        # argument list, and health_observe reads pairs positionally, so the
+        # flag names themselves get written as field names and the values that
+        # actually matter fall off the end.
+        obs=()
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --feature|--kind) shift 2 2>/dev/null || shift ;;
+            --feature=*|--kind=*) shift ;;
+            --*=*) obs+=("${1%%=*}"); obs[${#obs[@]}-1]="${obs[${#obs[@]}-1]#--}"; obs+=("${1#*=}"); shift ;;
+            --*) obs+=("${1#--}"); obs+=("${2-}"); shift 2 2>/dev/null || shift ;;
+            *) shift ;;
+          esac
+        done
+        health_observe "$f" "$k" "${obs[@]+"${obs[@]}"}"
         ;;
       *) die "health: expected signals or observe" ;;
     esac

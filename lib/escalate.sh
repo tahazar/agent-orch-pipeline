@@ -1,18 +1,23 @@
 #!/bin/bash
 # escalate.sh - the control law.
 #
-# Every feature starts at rung 0 and most should end there. Escalation is
-# one-way within a feature, always logged with the signal that fired, and
-# always reset for the next feature: persistent escalation across many features
-# is a fact about the codebase or the prompts, not about the feature, and it
-# belongs in the report rather than in a silently ratcheting counter.
+# The ladder is shared with lib/tier.sh: rungs 0-2 are the three tiers a
+# developer can choose up front, and rungs 3-5 are configurations only the
+# evidence can ask for. Escalation is one-way within a feature, always logged
+# with the signal that fired, and always reset for the next feature: persistent
+# escalation across many features is a fact about the codebase or the prompts,
+# not about the feature, and it belongs in the report rather than in a silently
+# ratcheting counter.
 #
-#   0  solo                 default
-#   1  solo + review        one signal, or a diff touching more than 3 files
-#   2  split test author    a blocking finding, or two signals
-#   3  best-of-N            a failed repair cycle, or test_oscillation
-#   4  diagnose             a second repair cycle failing on the same finding
-#   5  human                rung 4 produced no distinguishing experiment
+#   0  quick        developer-chosen  the developer writes its own tests
+#   1  standard     developer-chosen  + an independent code-reviewer
+#   2  strict       developer-chosen  + a test-engineer writing tests blind
+#   3  best-of-N    signal-forced     a failed repair cycle, or test_oscillation
+#   4  diagnose     signal-forced     a second repair cycle failing on one finding
+#   5  human        signal-forced     rung 4 produced no distinguishing experiment
+#
+# Signals can raise a developer-chosen tier too — asking for `quick` does not
+# buy immunity from the evidence, it just sets the floor to start from.
 #
 # Rung 5's trigger is the one worth defending: we escalate to a human when no
 # falsifiable experiment can be constructed, not when a try counter runs out.
@@ -30,9 +35,9 @@ ORCH_MAX_RUNG=5
 
 escalate_rung_name() {
   case "$1" in
-    0) printf 'solo' ;;
-    1) printf 'solo+review' ;;
-    2) printf 'split' ;;
+    0) printf 'quick' ;;
+    1) printf 'standard' ;;
+    2) printf 'strict' ;;
     3) printf 'best-of-N' ;;
     4) printf 'diagnose' ;;
     5) printf 'human' ;;

@@ -26,7 +26,7 @@ export ORCH_FEATURE=F020-report
 printf '\nno guessed numbers:\n'
 out="$("$ORCH" report F020-report 2>&1)"
 contains "$out" "F020-report" "the feature appears"
-contains "$out" "0·solo" "at rung 0"
+contains "$out" "0·quick" "at rung 0"
 contains "$out" "no baselines recorded" "the ablation refuses to invent a multiplier"
 contains "$out" "escalation_precision" "and names the number it cannot yet compute"
 # A cost report is not an LLM writing "~13k (est.)". Nothing here may print an
