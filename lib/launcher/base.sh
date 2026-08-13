@@ -135,17 +135,27 @@ launcher_spawn() {
   local role="$1" name="$2" cwd="$3"; shift 3
   launcher_known_role "$role" || die "spawn: no such role '$role' (agents/$role.md does not exist)"
   [ -d "$cwd" ] || die "spawn: '$cwd' is not a directory"
-  if orch_lnch_spawn "$role" "$name" "$cwd" "$@"; then
-    # The print launcher starts nothing, so recording a spawn would put a
-    # session in the ledger that does not exist — and `orch report` would then
-    # attribute a feature's cost to an agent nobody ever ran.
-    if [ "$ORCH_LAUNCHER" = "print" ]; then
-      ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
-    else
-      ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
-    fi
-    return 0
-  fi
-  ledger_append agent.spawn_failed role "$role" name "$name" launcher "$ORCH_LAUNCHER"
-  return 1
+  orch_lnch_spawn "$role" "$name" "$cwd" "$@"
+  case $? in
+    0)
+      # The print launcher starts nothing, so recording a spawn would put a
+      # session in the ledger that does not exist — and `orch report` would
+      # then attribute a feature's cost to an agent nobody ever ran.
+      if [ "$ORCH_LAUNCHER" = "print" ]; then
+        ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
+      else
+        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
+      fi
+      return 0
+      ;;
+    3)
+      # Already running. Not a failure, and not a spawn either — logging
+      # agent.spawned again would put a session in the ledger twice.
+      return 0
+      ;;
+    *)
+      ledger_append agent.spawn_failed role "$role" name "$name" launcher "$ORCH_LAUNCHER"
+      return 1
+      ;;
+  esac
 }

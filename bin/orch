@@ -245,9 +245,11 @@ be compared against what you actually said.
         if [ -n "$t" ]; then
           tier_confirm "$f" "$t"
         else
-          printf '\nNo tier yet, so no crew yet. The tech-lead reads the request and proposes one:\n'
-          printf '  orch tier recommend %s <%s> --why "..."\n' "$f" "$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')"
-          printf 'and you decide:\n  orch tier confirm %s\n' "$f"
+          printf '\nNo tier yet, so no crew yet. Summon the tech-lead to read the request:\n'
+          printf '  orch spawn tech-lead --feature %s\n' "$f"
+          printf 'It writes requirements.md and proposes a tier (orch tier recommend); you decide:\n'
+          printf '  orch tier confirm %s\n' "$f"
+          printf 'then crew up:\n  orch team start --feature %s\n' "$f"
         fi
         ;;
       current) orch_current_feature; printf '\n' ;;

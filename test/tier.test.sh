@@ -45,6 +45,7 @@ git -C "$ORCH_REPO" checkout -q main 2>/dev/null || git -C "$ORCH_REPO" checkout
 printf '\na feature starts with no tier and therefore no crew:\n'
 out="$("$ORCH" feature start F020-tier --request "test fixture" 2>&1)"
 contains "$out" "No tier yet, so no crew yet" "starting a feature does not choose a tier for you"
+contains "$out" "orch spawn tech-lead --feature F020-tier" "and it names the command that summons the tech-lead — the recommender must be summonable"
 [ "$("$ORCH" tier show F020-tier | jq -r '.is_confirmed')" = "false" ]
 chk $? "the tier is unconfirmed"
 [ "$("$ORCH" tier show F020-tier | jq -r '.confirmed')" = "" ]

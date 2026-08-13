@@ -16,6 +16,16 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   local role="$1" name="$2" cwd="$3"; shift 3
   local args cmd kv
 
+  # The tech-lead is spawned alone to propose a tier, then `team start
+  # --feature` spawns the whole crew — which includes it. A second workspace
+  # with the same name would be a second session fighting the first for the
+  # same tasks, so an existing one is reported, not duplicated. rc=3 tells
+  # launcher_spawn "present, not newly spawned" so the ledger stays honest.
+  if [ -n "$(_cmux_ws "$name")" ]; then
+    printf '%s is already running as cmux workspace `orch:%s`; not spawning a second.\n' "$name" "$name" >&2
+    return 3
+  fi
+
   cmd="$(launcher_claude_cmd "$role" "$name")"
 
   # One workspace group per repo keeps a six-agent crew from scattering itself
