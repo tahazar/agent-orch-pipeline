@@ -1,5 +1,0 @@
-# Symlinks into this machine's orch checkout. Not portable.
-agents/
-# Settings we backed up before merging, and per-developer overrides.
-*.orch-backup
-settings.local.json

@@ -9,3 +9,6 @@
 # Local, machine-specific Claude Code settings. The project settings that orch
 # installs are committed; this is the per-developer override alongside them.
 /.claude/settings.local.json
+
+# Feature artifacts belong to the repo orch is pointed AT, not to orch itself.
+/docs/features/
