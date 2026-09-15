@@ -383,13 +383,21 @@ choice available to a project whose checker is the kernel. A codebase is read
 by the next agent and the next human, and code nobody can read is code nobody
 can change. `diff_lines` stays a ranking axis for best-of-N.
 
-**Agent-driven TDD as a design tool.** One analysis of Claude Code usage found
-agent-led TDD cost "three to eight times more tokens without producing better
-designs" than test-after [P39, secondary]. `strict` is not there to produce
-better designs. It exists so that the tests describe what was asked and not
-what was built, and `orch report` already prints what that costs per feature.
-If `strict` shows no unique yield after twenty features, the standing rule
-applies to it too.
+**Red-green-refactor inside the agent loop.** Böckeler's exploratory
+experiment [P42] found no discernible quality difference between agents run
+with a TDD workflow and without, at 8.5× the tokens on small tasks, 3× on
+medium and 4.9× on large. Reading the traces, the judge model found the
+non-TDD agents "think through the data model, edge cases, contracts, and
+overall design before writing anything", while under TDD they "kept making
+locally minimal changes around the first test", the early design hardened,
+and they rarely came back to refactor. Her recommendation is the shape
+`strict` already has — tests written from the specification, in one pass, by
+a party that has not seen the implementation — plus mutation testing as the
+sensor for whether those tests constrain anything. `strict` is not
+red-green-refactor and should not become it: the developer gets the whole
+suite and designs against it, not one failing test at a time. If `strict`
+shows no unique yield after twenty features, the standing rule applies to it
+too.
 
 ---
 

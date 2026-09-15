@@ -133,13 +133,36 @@ Carried: an initializer/coding-agent split with a feature list carrying
 pass/fail status and a rule to verify end-to-end before marking done; a
 planner/generator/evaluator split on the stated ground that "self-evaluation
 by the same agent that generated the output is unreliable"; and that the
-harness was **simplified** on a newer model with no loss of quality. The
-"agent-driven TDD cost roughly three to eight times more tokens without
-producing better designs" line is from a third-party analysis of Claude Code
-usage (VILA-Lab, *Dive into Claude Code*, read from GitHub), not from
-Anthropic, and is recorded as a caution rather than a result.
+harness was **simplified** on a newer model with no loss of quality.
 
 *Acts on:* "What not to copy" in `docs/VERIFICATION.md`.
+
+---
+
+## [P42] TDD inside the agent loop — **partial**
+
+> Böckeler, B. *TDD inside the agent loop — theater or actual value?*
+> martinfowler.com, Exploring Gen AI, 10 Aug 2026. Blocked from this
+> environment; figures and quotations are from search-engine extracts and
+> from a GitHub issue that cites the article. An earlier revision of this
+> file attributed the finding to VILA-Lab's *Dive into Claude Code*, which
+> only indexes it.
+
+Recorded: "there was no clearly discernable difference based on TDD workflow
+versus no TDD workflow"; tokens with TDD 8.50× for small tasks, 2.96× for
+medium, 4.89× for large; mutation scores showed no meaningful difference.
+The judge model, reading traces, found non-TDD agents "tended to think through
+the data model, edge cases, contracts, and overall design before writing
+anything", while under TDD they "kept making locally minimal changes around
+the first test", with "early design hardening quickly and agents rarely
+returning for a serious refactor". Recommendations: mutation testing as a
+sensor, and tests written from the spec. The author's own caveat: five
+batches, one judge model, tasks chosen by the author — exploratory, not a
+controlled trial.
+
+*Acts on:* "What not to copy" in `docs/VERIFICATION.md`, and the developer's
+orders at `strict`, which must not become "make the failing tests pass one at
+a time".
 
 ---
 
