@@ -223,6 +223,14 @@ while claiming success is rejected `EVIDENCE_CONTRADICTED`.
 Neither consumes a repair cycle. Rejecting a false claim and failing an honest
 attempt are different events, and conflating them punishes the wrong thing.
 
+What execution does not yet prove is that the tests which passed are the tests
+that failed, against a statement nobody rewrote in between, with no new escape
+hatch in the diff. [`docs/VERIFICATION.md`](docs/VERIFICATION.md) takes those
+three properties from the Fermat's Last Theorem formalization [P36][P37] —
+where they are what let thirteen million unread lines be trusted — checks each
+against the hooks on this branch, and names the mechanism that would close
+each gap.
+
 ---
 
 ## Two seams

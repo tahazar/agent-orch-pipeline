@@ -366,6 +366,7 @@ agents/           six role definitions, ~3k tokens total
 hooks/            the six enforcement hooks
 test/             run-all.sh
 docs/PROVENANCE.md  every cited result, with its verification status
+docs/VERIFICATION.md what the FLT formalization teaches this pipeline, and the gaps it exposes
 ```
 
 State lives in three places: the **shared task list** (coordination),
