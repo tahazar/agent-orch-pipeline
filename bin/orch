@@ -61,6 +61,11 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch run --feature F --label L -- CMD…      attested execution
   orch evidence verify --feature F --label L [--claim pass|fail] [--fresh]
 
+  orch statement freeze <F> [--why W]  hash the statement; gates hold the feature to it
+  orch statement check <F>             exit 6 STATEMENT_MOVED if a frozen file changed
+  orch oracle freeze <F> [--sha S]     hash the test tree; the tests that pass must be these
+  orch oracle check <F> [--sha S]      exit 7 ORACLE_MOVED if the test tree differs
+
   orch gate read <F> <gate>            gate state, as JSON
   orch gate set  <F> <gate> <met|open> [--sha SHA]
   orch gate check <F> <gate>           exit 0 only if met for the current HEAD
@@ -242,6 +247,10 @@ be compared against what you actually said.
         ORCH_LEDGER_FEATURE="$f" ledger_append feature.started \
           base "$base" branch "$br" request "$reqsrc" rung:raw 0
         printf '%s started on branch %s (base %s).\n' "$f" "$br" "$base"
+        # "Frozen" is a hash in the ledger, not a promise: every gate
+        # recomputes it, and a request.md edited afterwards is STATEMENT_MOVED.
+        . "$ORCH_HOME/lib/statement.sh"
+        statement_freeze "$f" "feature start" >/dev/null
         printf 'request frozen at %s\n' "$(orch_feature_dir "$f")/request.md"
         if [ -n "$t" ]; then
           tier_confirm "$f" "$t"
@@ -541,6 +550,30 @@ be compared against what you actually said.
         cat "$(evidence_path "$f")" 2>/dev/null | jq -c '.'
         ;;
       *) die "evidence: expected verify or show" ;;
+    esac
+    ;;
+
+  statement)
+    . "$ORCH_HOME/lib/statement.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'statement: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      freeze) statement_freeze "$f" "$(opt why '' "$@")" ;;
+      check)  statement_check "$f" && printf 'statement for %s is as frozen.\n' "$f" ;;
+      show)   statement_frozen "$f" | jq '.' ;;
+      *) die "statement: expected freeze, check, or show" ;;
+    esac
+    ;;
+
+  oracle)
+    . "$ORCH_HOME/lib/statement.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'oracle: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      freeze) oracle_freeze "$f" "$(opt sha "$(orch_head_sha)" "$@")" ;;
+      check)  oracle_check "$f" "$(opt sha "$(orch_head_sha)" "$@")" && printf 'oracle for %s is as frozen.\n' "$f" ;;
+      show)   oracle_frozen "$f" | jq '.' ;;
+      *) die "oracle: expected freeze, check, or show" ;;
     esac
     ;;
 

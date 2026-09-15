@@ -67,11 +67,26 @@ esac
 # repo-relative path. DENY is checked first so a role can be given a broad
 # allowance minus a carve-out — which is what separates the developer (source,
 # not tests) from everyone else.
+# The statement — request.md, requirements.md, contract.md — is what every
+# gate measures against. Only the tech-lead writes it, and after the freeze
+# even that is STATEMENT_MOVED until re-frozen with a reason.
+STATEMENT='docs/features/*/request.md docs/features/*/requirements.md docs/features/*/contract.md'
+TESTS="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*}"
+DEVTESTS="${ORCH_DEV_TEST_GLOB:-test/dev/* tests/dev/* spec/dev/*}"
+# Trusted configuration: the files that decide what "the tests pass" means.
+# A change to the test command, the CI workflow, or a snapshot directory is
+# an axiom, and at strict the developer does not get to add axioms.
+AXIOMS="${ORCH_AXIOM_PATHS:-.github/* .gitlab-ci.yml Jenkinsfile jest.config.* vitest.config.* pytest.ini tox.ini setup.cfg .eslintrc* eslint.config.* .mocharc* __snapshots__/* *.snap}"
+
 case "$role" in
-  director|tech-lead|auditor|code-reviewer)
+  tech-lead)
     ALLOW='docs/features/*' ; DENY='' ;;
+  director|auditor|code-reviewer)
+    ALLOW='docs/features/*' ; DENY="$STATEMENT" ;;
   test-engineer)
-    ALLOW="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*} docs/features/*" ; DENY='' ;;
+    # Not the dev glob: a test the test-engineer puts there is outside the
+    # oracle and constrains nothing at the gate.
+    ALLOW="$TESTS docs/features/*" ; DENY="$STATEMENT $DEVTESTS" ;;
   developer)
     # The deny encodes the blind oracle: the developer must not edit tests
     # SOMEONE ELSE wrote as its acceptance criteria. That someone exists only
@@ -83,9 +98,9 @@ case "$role" in
     . "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
     rung="$(escalate_rung "$(orch_current_feature)" 2>/dev/null)" || rung=0
     if [ "${rung:-0}" -ge 2 ]; then
-      ALLOW='*' ; DENY="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*}"
+      ALLOW='*' ; DENY="$TESTS $STATEMENT $AXIOMS"
     else
-      ALLOW='*' ; DENY=''
+      ALLOW='*' ; DENY="$STATEMENT"
     fi ;;
   *)
     exit 0 ;;
@@ -109,14 +124,36 @@ block() {
   exit 2
 }
 
+# The developer's own tests are carved out of the oracle deny: it may add
+# tests there, and they count toward coverage but never toward the oracle.
+if [ "$role" = developer ] && matches "$rel" $DEVTESTS; then
+  DENY="$STATEMENT"
+fi
+
 if [ -n "$DENY" ] && matches "$rel" $DENY; then
-  block "it is a test path" \
+  if matches "$rel" $STATEMENT; then
+    block "it is the statement" \
+"request.md, requirements.md and contract.md are what every gate measures
+against, and they are frozen by hash. Only the tech-lead writes them, and after
+the freeze even that needs a reason:  orch statement freeze <feature> --why ...
+
+If the statement is wrong, raise a finding against it; do not rewrite the target."
+  elif matches "$rel" $AXIOMS; then
+    block "it is trusted configuration" \
+"The test command, the CI workflow, the runner config and the snapshots decide
+what \"the tests pass\" means. At strict they are axioms, and the developer does
+not add axioms. If one genuinely needs changing, say so in a finding and let the
+tech-lead make it."
+  else
+    block "it is a test path" \
 "The developer does not author the tests it must satisfy. Separating test
 authorship from implementation is the point of rung 2 — a developer that can edit
-the oracle can always make it green.
+the oracle can always make it green. Your own tests are welcome under
+${DEVTESTS%% *} — they count toward coverage and never toward the oracle.
 
 If the test itself is wrong, say so and let the auditor settle it by experiment:
   orch findings dispute <feature> <id> --reason \"<why the test is wrong>\""
+  fi
 fi
 
 if ! matches "$rel" $ALLOW; then

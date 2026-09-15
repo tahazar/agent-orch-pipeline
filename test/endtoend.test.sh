@@ -161,7 +161,7 @@ chk $? "every ledger row carries ts, actor, feature and sha"
 printf '\nno guessed numbers anywhere:\n'
 # The whole reason for the ledger. The alternative is agents typing
 # "~13k (est.)" at each other. Nothing in the artifacts may contain an estimate.
-if grep -rn 'est\.\|~[0-9]*k tokens\|approximately [0-9]* tokens' docs/features/ 2>/dev/null; then
+if grep -rn '(est\.\|[[:space:]]est\.\|~[0-9]*k tokens\|approximately [0-9]* tokens' docs/features/ 2>/dev/null; then
   bad "an estimated number leaked into the artifacts"
 else
   ok "no estimated token counts anywhere in docs/features/"

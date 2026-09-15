@@ -57,6 +57,11 @@ evidence_run() {
   end="$(now_epoch)"
   dur=$((end - start))
   sha="$(orch_sha256 < "$out")"
+  # Git tracks the sha; it does not track what was lying next to it. A green
+  # run at HEAD with uncommitted edits in the tree attests a state nobody can
+  # check out. docs/features is excluded because the artifacts change on every
+  # turn and are not what the tests ran against; .orch is orch's own scratch.
+  dirty_n="$(git -C "$(_evidence_worktree)" status --porcelain -- . ':(exclude)docs/features' ':(exclude).orch' 2>/dev/null | grep -c .)"
   tail_txt="$(tail -c 2000 "$out" 2>/dev/null)"
   cmd_json="$(printf '%s\n' "$@" | jq -Rs 'split("\n")[:-1]')"
 
@@ -70,7 +75,9 @@ evidence_run() {
     stdout_sha256 "$sha" \
     stdout_tail "$tail_txt" \
     git_sha "$(orch_head_sha)" \
-    worktree "$(_evidence_worktree)")"
+    worktree "$(_evidence_worktree)" \
+    dirty:raw "$([ "${dirty_n:-0}" -gt 0 ] && printf true || printf false)" \
+    dirty_files:raw "${dirty_n:-0}")"
   orch_append_jsonl "$(evidence_path "$feature")" "$row"
   ORCH_LEDGER_FEATURE="$feature" ledger_append run.attested \
     label "$label" exit_code:raw "$rc" duration_s:raw "$dur"
@@ -95,17 +102,19 @@ evidence_latest() {  # evidence_latest <feature> <label>
 #   3  EVIDENCE_UNATTESTED   - no row for that label
 #   4  EVIDENCE_CONTRADICTED - a row exists and refutes the claim
 #   5  EVIDENCE_STALE        - the branch tip moved after the evidence was taken
+#   6  EVIDENCE_DIRTY        - the run happened over uncommitted changes
 #
 # Neither 3 nor 4 consumes a repair cycle. Rejecting a false claim is not the
 # same event as failing an honest attempt, and conflating them is how a loop
 # burns its budget punishing the wrong thing.
-evidence_verify() {  # evidence_verify <feature> <label> [--claim pass|fail] [--fresh]
+evidence_verify() {  # evidence_verify <feature> <label> [--claim pass|fail] [--fresh] [--clean]
   local feature="$1" label="$2"; shift 2
-  local claim=pass fresh=0
+  local claim=pass fresh=0 clean=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --claim) claim="${2:-pass}"; shift 2 ;;
-      --fresh) fresh=1; shift ;;
+      --fresh) fresh=1; clean=1; shift ;;
+      --clean) clean=1; shift ;;
       *) die "evidence verify: unexpected argument '$1'" ;;
     esac
   done
@@ -133,6 +142,16 @@ evidence_verify() {  # evidence_verify <feature> <label> [--claim pass|fail] [--
             return 4; } ;;
     *) die "evidence verify: --claim must be pass or fail" ;;
   esac
+
+  # A row from before this field existed is neither clean nor dirty; it is
+  # allowed, so that an upgrade does not retroactively reject a run.
+  if [ "$clean" = "1" ] && [ "$(printf '%s' "$row" | jq -r '.dirty // false')" = "true" ]; then
+    printf 'EVIDENCE_DIRTY: %s ran over %s uncommitted change(s) at %s\n' \
+      "$label" "$(printf '%s' "$row" | jq -r '.dirty_files // "?"')" "$(printf '%s' "$row" | jq -r '.git_sha // ""' | cut -c1-12)" >&2
+    printf 'Nobody can check out what that run tested. Commit, then run it again.\n' >&2
+    ORCH_LEDGER_FEATURE="$feature" ledger_append evidence.rejected label "$label" reason EVIDENCE_DIRTY
+    return 6
+  fi
 
   if [ "$fresh" = "1" ]; then
     row_sha="$(printf '%s' "$row" | jq -r '.git_sha // ""')"

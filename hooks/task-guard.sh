@@ -26,6 +26,8 @@ export ORCH_HOME ORCH_PROG
   exit 0
 }
 . "$ORCH_HOME/lib/findings.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/statement.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
 
@@ -60,6 +62,13 @@ block() {  # block <reason> <remedy...>
 
 ORCH_LEDGER_FEATURE="$feature" ledger_append gate.checked gate "$gate" task "$subject"
 
+# The statement holds at every gate. A requirements.md edited after the freeze
+# changes what every one of these gates is measuring, so no stage completes
+# against a moved statement.
+if declare -f statement_check >/dev/null 2>&1; then
+  msg="$(statement_check "$feature" 2>&1)" || block "the statement moved" "$msg"
+fi
+
 case "$gate" in
   tests-fail-correctly)
     if ! evidence_verify "$feature" tests --claim fail >/dev/null 2>&1; then
@@ -70,6 +79,30 @@ A test that passes now would be testing nothing, and you would never find out.
   orch run --feature $feature --label tests -- <your test command>
 
 The run is expected to exit non-zero. That non-zero exit IS the attestation."
+    fi
+    # The red run must be over a committed tree: the oracle is frozen as the
+    # tree at that run's sha, and an uncommitted test file is not in it.
+    msg="$(evidence_verify "$feature" tests --claim fail --clean 2>&1)" \
+      || block "the red phase ran over uncommitted tests" \
+"$msg
+
+Commit the tests, then attest the red phase again. The oracle is frozen as the
+test tree at the sha of that run, and a file that is not committed is not in it."
+    # The red run must postdate the statement it claims to test.
+    if declare -f statement_frozen_at >/dev/null 2>&1; then
+      red_ts="$(evidence_latest "$feature" tests | jq -r '.ts // ""')"
+      frz_ts="$(statement_frozen_at "$feature")"
+      if [ -n "$frz_ts" ] && [ -n "$red_ts" ] && [ "$red_ts" \< "$frz_ts" ]; then
+        block "the red phase predates the statement" \
+"The statement was re-frozen at $frz_ts; the red run is from $red_ts. Tests
+written against the old statement do not describe the new one. Re-read
+requirements.md, amend the tests, and attest the red phase again."
+      fi
+    fi
+    # Freeze the oracle: from here on, the tests that pass must be these.
+    if declare -f oracle_freeze >/dev/null 2>&1; then
+      red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      [ -n "$red_sha" ] && [ "$red_sha" != "unknown" ] && oracle_freeze "$feature" "$red_sha" >/dev/null 2>&1
     fi
     ;;
 
@@ -84,6 +117,16 @@ command, not your summary of it.
 
 If it is already green, it is green at a sha older than HEAD — run it again."
     done
+    for g in build tests; do
+      msg="$(evidence_verify "$feature" "$g" --claim pass --clean 2>&1)" \
+        || block "$g ran over uncommitted changes" "$msg"
+    done
+    # The tests that pass are the tests that failed. Checked at the sha of
+    # the green run, which is where the claim is made.
+    if declare -f oracle_check >/dev/null 2>&1; then
+      green_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      msg="$(oracle_check "$feature" "${green_sha:-HEAD}" 2>&1)" || block "the oracle moved" "$msg"
+    fi
     ;;
 
   review-clean)

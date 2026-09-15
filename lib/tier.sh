@@ -174,6 +174,13 @@ Pass one explicitly:  orch tier confirm $feature --tier <$(printf '%s' "$ORCH_TI
   ORCH_LEDGER_FEATURE="$feature" ledger_append tier.confirmed \
     tier "$tier" rung:raw "$rung" recommended "$rec" by "$(orch_actor)"
 
+  # The crew is sized here, so this is the last moment the statement can
+  # change without anyone having built against it. Freeze whatever exists —
+  # requirements.md and contract.md if the tech-lead has written them,
+  # request.md regardless.
+  . "$ORCH_HOME/lib/statement.sh"
+  statement_freeze "$feature" "tier confirmed" >/dev/null 2>&1 || true
+
   if [ "$rung" -gt "$cur" ]; then
     escalate_to "$feature" "$rung" "tier=$tier confirmed by a human"
   fi
