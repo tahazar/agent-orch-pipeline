@@ -75,6 +75,12 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch gate read <F> <gate>            gate state, as JSON
   orch gate set  <F> <gate> <met|open> [--sha SHA]
   orch gate check <F> <gate>           exit 0 only if met for the current HEAD
+  orch holdout add <F> <test-path>     hold a test out of the tree; the developer never sees it
+  orch holdout run <F> -- CMD…         run the holdout in a clean worktree at HEAD; a merge gate
+  orch holdout list <F>
+  orch readback start <F>              a blind session: what do the tests literally assert?
+  orch readback record <F> [file|-]    the read-back, bound to the oracle sha
+  orch readback files <F>              the oracle files the read-back may read
   orch packet <F>                      what to read before approving: statement first, diff last
   orch approve <F> --gate <gate>       human approval, from any terminal
 
@@ -680,6 +686,42 @@ be compared against what you actually said.
         printf 'gate %s for %s: met\n' "$g" "$f"
         ;;
       *) die "gate: expected read, set, or check" ;;
+    esac
+    ;;
+
+  holdout)
+    . "$ORCH_HOME/lib/holdout.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'holdout: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      add)  holdout_add "$f" "$(need "${1:-}" 'holdout add: needs a test path')" ;;
+      list) holdout_list "$f" ;;
+      run)  holdout_run "$f" "$@" ;;
+      *) die "holdout: expected add, list, or run" ;;
+    esac
+    ;;
+
+  readback)
+    . "$ORCH_HOME/lib/readback.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'readback: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        # A code-reviewer with the readback lens: no write tools, sees the
+        # oracle files and nothing else, and records through orch. Sonnet at
+        # low effort — this is translation, not judgement.
+        . "$ORCH_HOME/lib/launcher/base.sh"
+        ( export ORCH_LENS=readback
+          ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT=low \
+            ORCH_PROMPT="You are the read-back for $f. Run \`orch readback files $f\` and read ONLY those test files — requirements.md, request.md and contract.md are denied to you on purpose, and you must not infer what the tests are supposed to mean. For each test, write one plain-English paragraph stating exactly what would have to be true for it to pass: every input, every asserted output, every boundary, and what would satisfy it vacuously (an empty input, a caught exception, an assertion that cannot fail). Omitting a condition is the worst failure. Then record it: \`orch readback record $f -\` with the text on stdin. You change nothing." \
+            launcher_spawn code-reviewer "$(launcher_session_name code-reviewer readback)" "$ORCH_REPO" \
+              $(launcher_env code-reviewer "$f") )
+        ;;
+      record) readback_record "$f" "${1:--}" ;;
+      files)  readback_files "$f" ;;
+      show)   cat "$(readback_path "$f")" 2>/dev/null || { printf 'no read-back for %s\n' "$f"; exit 1; } ;;
+      status) readback_status "$f"; printf '\n' ;;
+      *) die "readback: expected start, record, files, show, or status" ;;
     esac
     ;;
 

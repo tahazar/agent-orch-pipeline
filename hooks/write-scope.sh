@@ -99,9 +99,9 @@ case "$role" in
     . "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
     rung="$(escalate_rung "$(orch_current_feature)" 2>/dev/null)" || rung=0
     if [ "${rung:-0}" -ge 2 ]; then
-      ALLOW='*' ; DENY="$TESTS $STATEMENT $AXIOMS"
+      ALLOW='*' ; DENY="$TESTS $STATEMENT $AXIOMS .orch/holdout/*"
     else
-      ALLOW='*' ; DENY="$STATEMENT"
+      ALLOW='*' ; DENY="$STATEMENT .orch/holdout/*"
     fi ;;
   *)
     exit 0 ;;

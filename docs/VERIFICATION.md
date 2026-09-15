@@ -234,6 +234,8 @@ never fires can be deleted like any other gate.
 
 ### 4. The red phase does not have to compile
 
+**Status: built**, conditionally — once gate `contract-compiles` is met, the red run must have a passing build at its own sha; without a contract gate the gap is recorded as `red.unbuilt`, not enforced. Suite: `test/holdout.test.sh`.
+
 **FLT:** a statement with `sorry` compiles. A reduction sketch that imports
 child lemmas is itself type-checked before it is `SKETCH_ACCEPTED`. The
 skeleton is verified before the holes are filled.
@@ -259,8 +261,8 @@ Mechanical; per-runner extractors are the cost. Medium.
 
 ### 5. The human is handed the proof, not the statement
 
-**Status: the packet is built** (`orch packet`); the read-back is not — see
-`AGENT-TDD.md`, order of work, item 6.
+**Status: built.** `orch packet`, and the read-back as a blind `readback`
+lens on the code-reviewer (`lib/readback.sh`, `orch readback start|record`).
 
 **FLT:** the reviewer reads `Thm_fermat_last_theorem.lean` (one line),
 `PROOF-PATH.md`, the axiom list, and the comparator verdict. Nobody reads the
@@ -345,6 +347,8 @@ way findings are: "these were tried and failed, with the attested run that
 showed it." Tiny.
 
 ### 8. Held-out tests, at `strict` and above
+
+**Status: built, opt-in.** `lib/holdout.sh`, `orch holdout add|run|list`; the developer is denied it by read, write and executor; a merge gate when present; failure escalates. Suite: `test/holdout.test.sh`.
 
 **FLT:** the comparator's challenge file and the second kernel are checks the
 agents never iterated against. Anthropic's reward-hacking defences use hidden

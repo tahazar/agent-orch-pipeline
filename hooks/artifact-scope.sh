@@ -62,6 +62,17 @@ case "$abs" in
   "$repo_raw"/*) rel="${abs#"$repo_raw"/}" ;;
 esac
 
+# The holdout is the part of the oracle the developer is not shown.
+case "$rel" in .orch/holdout/*)
+  if [ "$role" = developer ]; then
+    ORCH_LEDGER_FEATURE="${ORCH_FEATURE:-$(orch_current_feature)}" \
+      ledger_append gate.blocked gate holdout role developer path "$rel" reason "read"
+    printf 'BLOCKED: the developer does not read the holdout (%s). What it holds is exactly what you are not shown.\n' "$rel" >&2
+    exit 2
+  fi
+  exit 0 ;;
+esac
+
 # Only docs/features/** is scoped; source visibility is write-scope's and the
 # worktree's problem, and a repo's own README is nobody's secret.
 case "$rel" in docs/features/*) ;; *) exit 0 ;; esac
@@ -90,6 +101,20 @@ genuinely bears on your work, say so in a finding and let the tech-lead carry
 it into your feature's requirements."
 fi
 
+case "$role" in
+  code-reviewer)
+    # The readback lens reads the tests and nothing else. A read-back that
+    # has seen the requirements reads their meaning into the tests, which is
+    # the one thing it exists not to do.
+    if [ "${ORCH_LENS:-}" = readback ]; then
+      block "the read-back is written blind" \
+"You are translating what the tests literally assert. requirements.md,
+request.md and contract.md would tell you what they are supposed to assert,
+and the difference between those two is the whole point. Read the files
+\`orch readback files $my_feature\` lists, and nothing under docs/features."
+    fi
+    ;;
+esac
 case "$role" in
   test-engineer|code-reviewer)
     case "$target_file" in

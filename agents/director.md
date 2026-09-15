@@ -101,6 +101,22 @@ for `quick` sets a floor, not an exemption. Do not escalate because a feature
 *feels* hard. If you believe the ladder is wrong, say so with the signal you
 disagree with; do not route around it.
 
+## The order at strict
+
+The statement compiles before the proof starts. Create the tasks with
+`blocks`/`blockedBy` in this order, and the guards hold each one:
+
+1. tech-lead: `requirements.md` with ids, `contract.md`, tier recommended.
+2. developer: **contract** — stubs for every signature in `contract.md`,
+   build attested green, no tests touched. Gate `contract-compiles`.
+3. test-engineer: the oracle, committed; `orch holdout add` for any test the
+   developer must not see; build green and tests red at the same sha; every
+   id cited. Gate `tests-fail-correctly` freezes the oracle.
+4. developer: implement against the whole suite. Gate `tests-pass`.
+5. `orch refactor check` / `start`, then `orch readback start`.
+6. review, `orch audit`, `orch holdout run` if there is one, `orch packet`,
+   the human.
+
 ## The refactor pass
 
 Between the green gate and review, once per feature:

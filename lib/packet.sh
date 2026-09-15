@@ -9,10 +9,9 @@
 # not because they stopped reading, but because everything the diff could
 # tell them has already been checked.
 #
-# Nothing here asks a model anything. The read-back — a blind, natural-language
-# rendering of what the tests literally assert — is the one model call the
-# design wants in this packet, and it is not built yet; where it would go is
-# marked.
+# Nothing here is written by a model except the read-back — a blind,
+# natural-language rendering of what the tests literally assert — and that
+# is bound to the oracle sha it describes and shown as stale otherwise.
 
 [ -n "${ORCH_PACKET_SOURCED:-}" ] && return 0
 ORCH_PACKET_SOURCED=1
@@ -23,6 +22,10 @@ ORCH_PACKET_SOURCED=1
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/axioms.sh"
 # shellcheck source=sensors.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sensors.sh"
+# shellcheck source=readback.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/readback.sh"
+# shellcheck source=holdout.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/holdout.sh"
 
 _packet_h() { printf '\n== %s ==\n\n' "$1"; }
 
@@ -55,7 +58,12 @@ packet_render() {  # packet_render <feature>
   else
     printf 'oracle:    not frozen (no attested red phase on record)\n'
   fi
-  printf '\n[read-back would go here: what the tests literally assert, written blind — not built]\n'
+  printf '\nread-back — what the tests literally assert, written without sight of the requirements:\n'
+  case "$(readback_status "$feature")" in
+    current) sed '1,3d' "$(readback_path "$feature")" | sed 's/^/  /' ;;
+    stale)   printf '  STALE — written against an older oracle. Re-run:  orch readback start %s\n' "$feature" ;;
+    *)       printf '  none recorded. Compare the tests to the requirements yourself, or:  orch readback start %s\n' "$feature" ;;
+  esac
 
   _packet_h "3. requirements, and the oracle tests that cite each"
   cov="$(spec_coverage "$feature" "$head")"
@@ -102,6 +110,15 @@ packet_render() {  # packet_render <feature>
       "$(printf '%s' "$row" | jq -r 'if .reason then " — " + .reason elif .post_diff_lines then " — \(.post_diff_lines) lines" else "" end')"
   else
     printf '  refactor: not run\n'
+  fi
+
+  if holdout_has "$feature"; then
+    row="$(substrate_read_gate "$feature" holdout 2>/dev/null)"
+    if [ "$(printf '%s' "$row" | jq -r '.state // "absent"')" = met ] && [ "$(printf '%s' "$row" | jq -r '.sha // ""')" = "$head" ]; then
+      printf '  holdout: PASSED at HEAD (%s held-out test file(s) the developer never saw)\n' "$(holdout_list "$feature" | grep -c .)"
+    else
+      printf '  holdout: NOT passed at HEAD — the merge is blocked until it is:  orch holdout run %s -- <cmd>\n' "$feature"
+    fi
   fi
 
   _packet_h "7. evidence at HEAD"

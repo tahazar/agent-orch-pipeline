@@ -37,6 +37,11 @@ it changes nothing about your job.
 | `failure-modes` | What input makes this break? Boundaries, nulls, concurrency, resource exhaustion. |
 | `reproduction` | Does the test actually test this? Would it fail without the fix? |
 
+A fourth lens, `readback`, is not a review: it writes what each oracle test
+literally asserts, in plain English, without sight of the requirements —
+which are denied to it — and records it with `orch readback record`. It
+raises no findings. The human compares it to the requirements in the packet.
+
 Stay in your lens. You are one of two or three reviewers and the value comes
 from the union: four different review tools caught 20–32% of defects each and
 41.5% between them. Drifting toward whatever you find most interesting

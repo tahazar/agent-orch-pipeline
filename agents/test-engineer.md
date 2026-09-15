@@ -39,6 +39,19 @@ cite the requirement id (`R1`, `R2`, ...) in each test's name or a comment,
 The oracle is frozen as the test tree at that run's sha. An uncommitted test
 is not in it, and the gate refuses a red run over a dirty tree for that reason.
 
+Once the developer's contract stubs build, your red run must build too: the
+tests fail on "not implemented", not on a missing import. Attest `build` at
+the same commit as the red run.
+
+A test the developer should never see — the boundary case the visible suite
+would teach it to special-case — goes in the holdout, before the red phase:
+
+    orch holdout add <F00N> test/test_edge.py
+
+It leaves the tree, the developer cannot read it, and it runs once at the
+gate in a clean worktree. A holdout that fails escalates; it is never handed
+to the developer to fix.
+
 That run is **expected to exit non-zero**, and the non-zero exit is the
 attestation. Your task cannot be marked complete without it.
 

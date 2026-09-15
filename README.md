@@ -247,6 +247,9 @@ Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
 | the tests that pass are the tests that failed, however an edit was made | `hooks/task-guard.sh` |
 | no new skip, ignore, disabled lint or changed test config without a finding | `hooks/task-guard.sh` |
 | every requirement id is cited by an oracle test before the red phase completes | `hooks/task-guard.sh` |
+| the contract builds before the oracle is written, and the red phase builds after | `hooks/task-guard.sh` |
+| the read-back session reads the tests and no artifact | `hooks/artifact-scope.sh` |
+| the developer never reads, writes, or runs a command naming the holdout; no merge until it passes | `hooks/artifact-scope.sh`, `hooks/write-scope.sh`, `lib/evidence.sh`, `hooks/gate-guard.sh` |
 | reviewers can report, never act | `disallowedTools` |
 | candidates cannot escape their worktree | `isolation: worktree` |
 
@@ -307,6 +310,37 @@ Line coverage says a line ran. Mutation score says a test would notice if it
 were wrong. A suite with the first and not the second exercises the code and
 asserts nothing about it, which is the suite an agent writes once it has seen
 the implementation.
+
+## The read-back and the holdout
+
+Two more things borrowed from how the FLT proof was checked. Both are optional.
+
+**The read-back** is a natural-language rendering of what each oracle test
+literally asserts, written by a session that is denied the requirements, so
+it cannot read their meaning into the tests. The packet puts it beside the
+requirements; the comparison is yours. It is bound to the oracle it describes
+and shown as stale if the oracle changes.
+
+```bash
+orch readback start F001-csv-parser    # sonnet, low effort, sees only the tests
+```
+
+**The holdout** is the part of the oracle the developer never sees. The
+test-engineer designates it before the red phase; it leaves the tree; the
+developer is denied it by the read guard, the write guard and the executor;
+it runs once, in a clean worktree at the approved sha, and a feature that has
+one does not merge until it has passed. A failing holdout escalates to
+best-of-N rather than opening a repair cycle, because a repair cycle would
+make it visible.
+
+```bash
+orch holdout add F001-csv-parser test/test_edge.py     # test-engineer, before red
+orch holdout run F001-csv-parser -- npm test           # director, at the gate
+```
+
+The boundary is stated in `lib/holdout.sh`: a developer that goes looking with
+`orch run -- find` can find it. It is a discouragement with a ledger row, not
+a secret.
 
 ## The refactor pass
 
@@ -401,7 +435,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-727 assertions across fifteen suites. No Claude session, no API key, no network.
+775 assertions across sixteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -430,6 +464,8 @@ lib/
   sensors.sh      diff coverage, mutation score
   refactor.sh     the refactor pass: trigger, invariant, exit
   packet.sh       the approval packet: statement first, diff last
+  readback.sh     what the tests literally assert, written blind
+  holdout.sh      the part of the oracle the developer never sees
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

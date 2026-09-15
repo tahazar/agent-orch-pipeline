@@ -36,6 +36,14 @@ evidence_run() {
   [ "${1:-}" = "--" ] && shift
   [ "$#" -gt 0 ] || die "run: no command given"
   orch_valid_feature "$feature" || die "run: invalid feature '$feature'"
+  # The executor is a universal shell; this is the one thing it will not run
+  # for the developer. Not a secret — a discouragement with a ledger row.
+  if [ "${ORCH_ROLE:-}" = developer ]; then
+    case "$*" in *.orch/holdout*)
+      ORCH_LEDGER_FEATURE="$feature" ledger_append gate.blocked gate holdout reason "developer command named the holdout"
+      die "run: the developer does not read the holdout. What it holds is exactly what you are not shown." ;;
+    esac
+  fi
 
   local out start end rc dur sha tail_txt cmd_json row had_e=0
   out="$(mktemp "${TMPDIR:-/tmp}/orch-run.XXXXXX")" || die "run: mktemp failed"

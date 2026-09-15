@@ -31,6 +31,7 @@ export ORCH_HOME ORCH_PROG
 . "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/spec.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/substrate/base.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
 
@@ -50,6 +51,7 @@ feature="$(printf '%s' "$payload" | jq -r '.task.metadata.orch.feature // ""' 2>
 gate="$meta_gate"
 if [ -z "$gate" ]; then
   case "$subject" in
+    *contract*)                                   gate=contract-compiles ;;
     *"red phase"*|*"failing test"*|*test-engineer*) gate=tests-fail-correctly ;;
     *implement*|*developer*|*build*)           gate=tests-pass ;;
     *review*|*code-reviewer*)                     gate=review-clean ;;
@@ -73,6 +75,26 @@ if declare -f statement_check >/dev/null 2>&1; then
 fi
 
 case "$gate" in
+  contract-compiles)
+    # The statement, made compilable: stubs for contract.md that build, with
+    # no oracle in them. Lean's `sorry` — the sketch type-checks before any
+    # hole is filled. Met here, the red phase must then compile too.
+    msg="$(evidence_verify "$feature" build --claim pass --fresh 2>&1)" \
+      || block "the contract does not build" \
+"$msg
+
+Commit stubs for every signature in contract.md — bodies that raise or throw
+\"not implemented\" — and attest the build at that commit:
+
+  orch run --feature $feature --label build -- <build command>"
+    if declare -f oracle_check >/dev/null 2>&1; then
+      msg="$(oracle_check "$feature" 2>&1)" || block "the contract commit touched the oracle" "$msg"
+    fi
+    if declare -f substrate_set_gate >/dev/null 2>&1; then
+      substrate_set_gate "$feature" contract met "$(orch_head_sha)" >/dev/null 2>&1
+    fi
+    ;;
+
   tests-fail-correctly)
     if ! evidence_verify "$feature" tests --claim fail >/dev/null 2>&1; then
       block "the red phase is unattested" \
@@ -101,6 +123,26 @@ test tree at the sha of that run, and a file that is not committed is not in it.
 written against the old statement do not describe the new one. Re-read
 requirements.md, amend the tests, and attest the red phase again."
       fi
+    fi
+    # Once the contract compiles, the red phase must compile too: the tests
+    # fail because the behaviour is missing, not because an import is. A
+    # feature without a contract gate records the gap instead of blocking.
+    red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+    if declare -f substrate_read_gate >/dev/null 2>&1 \
+       && [ "$(substrate_read_gate "$feature" contract 2>/dev/null | jq -r '.state // "absent"')" = met ]; then
+      b_row="$(evidence_latest "$feature" build)"
+      if [ -z "$b_row" ] || [ "$(printf '%s' "$b_row" | jq -r .exit_code)" != "0" ] \
+         || [ "$(printf '%s' "$b_row" | jq -r '.git_sha // ""')" != "$red_sha" ]; then
+        block "the red phase does not compile" \
+"The contract compiles, so a suite written against it must compile too: the
+tests fail on \"not implemented\", not on a missing import. Attest the build at
+the same commit as the red run:
+
+  orch run --feature $feature --label build -- <build command>
+  orch run --feature $feature --label tests -- <test command>   # expected to fail"
+      fi
+    else
+      ORCH_LEDGER_FEATURE="$feature" ledger_append red.unbuilt reason "no contract gate; the red run's build was not required"
     fi
     # Every requirement id must be cited by an oracle test before the oracle
     # is frozen — a requirement nothing cites is one nothing will fail for.

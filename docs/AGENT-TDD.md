@@ -358,11 +358,12 @@ Sinking conditions, stated up front:
    `axioms`.~~ **Built.** `lib/statement.sh`, `lib/axioms.sh`, the guards,
    `test/floor.test.sh`, `test/axioms.test.sh`.
 2. ~~The developer's orders and the developer test path.~~ **Built.**
-3. The contract: **half built.** `contract.md` is part of the frozen statement,
-   the tech-lead is told to write it, and the blind roles read it. The
-   `contract-compiles` gate is not: the tech-lead writes no source, so
-   compilable stubs would have to come from the developer's first attested
-   step, and that ordering is not yet designed.
+3. ~~The contract and `contract-compiles`.~~ **Built.** `contract.md` is
+   part of the frozen statement and the blind roles read it. The stubs are
+   the developer's first task — the tech-lead writes no source — and gate
+   `contract-compiles` requires them to build and touch no oracle. Once met,
+   the red phase must build at its own sha: the tests fail on "not
+   implemented", not on an import.
 4. ~~`diff-coverage` and `mutation` extractors~~ **Built.** `lib/sensors.sh`:
    diff coverage from lcov (coverage.py, istanbul, cargo-llvm-cov, gcov2lcov
    all write it), mutation from Stryker, cargo-mutants, or the last number an
@@ -374,12 +375,12 @@ Sinking conditions, stated up front:
    its own worktree; kept by fast-forward or discarded with the numbers.
    Complexity and duplication are attested numbers (`orch run --label
    complexity|duplication -- <tool>`), not built-in extractors.
-6. ~~`spec-coverage`~~ **built**; ~~the approval packet~~ **built**
-   (`orch packet`, `lib/packet.sh`), with the read-back's place in it marked.
-   The read-back itself is not: it needs a blind context that can write one
-   artifact and read nothing but the tests, and the six-role lint is a
-   deliberate constraint — a seventh role, or a `readback` lens on the
-   `code-reviewer` with a write path for one file, is a decision to make on
-   purpose.
-7. Holdout, only once the mutation and refactor numbers say the visible
-   oracle is being overfit.
+6. ~~`spec-coverage`, the read-back, the approval packet.~~ **Built.** The
+   read-back is a `code-reviewer` session with the `readback` lens: no write
+   tools, every artifact denied to it, records through `orch readback record`,
+   bound to the oracle sha and shown stale otherwise. No seventh role.
+7. ~~Holdout.~~ **Built, opt-in.** Nothing runs unless the test-engineer
+   designates a holdout; when it does, the developer is denied it three ways,
+   it runs once in a clean worktree at HEAD, it gates the merge, and a failure
+   escalates to best-of-N. Whether to use it is still the question the
+   mutation numbers answer.
