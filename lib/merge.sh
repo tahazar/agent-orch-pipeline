@@ -12,7 +12,8 @@
 #   orch merge status       approved and not landed, landed, rejected
 #
 # What it checks before touching the base: the human gate at F's HEAD, the
-# statement and the oracle as frozen, the holdout if F has one. What it
+# statement and the oracle as frozen, the holdout if F has one, and — with
+# the product layer on — the walkthrough for a feature a story asked for. What it
 # checks after merging into the integration worktree: the build and test
 # commands (ORCH_BUILD_CMD, ORCH_TEST_CMD), attested under the run ledger.
 
@@ -23,6 +24,8 @@ ORCH_MERGE_SOURCED=1
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/statement.sh"
 # shellcheck source=holdout.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/holdout.sh"
+# shellcheck source=walkthrough.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/walkthrough.sh"
 
 merge_lock() { printf '%s/merge.lock' "$(orch_state_dir)"; }
 merge_wt()   { printf '%s/worktrees/_integration' "$(orch_state_dir)"; }
@@ -99,19 +102,31 @@ merge_land() {
     [ "$(printf '%s' "$g" | jq -r '.state // "absent"')" = met ] && [ "$(printf '%s' "$g" | jq -r '.sha // ""')" = "$head" ] \
       || die "merge: $feature has a holdout that has not passed at $(printf '%s' "$head" | cut -c1-12).  orch holdout run $feature -- <cmd>"
   fi
+  # A story-backed feature lands only after its persona reached the goal at
+  # this HEAD. The gate is the walkthrough's record, not its prose.
+  if walkthrough_required "$feature"; then
+    walkthrough_gate_met "$feature" \
+      || die "merge: $feature was built for story $(product_feature_story "$feature") and its persona has not reached the goal at $(printf '%s' "$head" | cut -c1-12).  orch walkthrough start $feature"
+  fi
 
   orch_with_lock "$(merge_lock)" _merge_land_locked "$feature" "$head" "$base" || return 1
+  [ "$close" != "1" ] || merge_close "$feature"
+}
 
-  if [ "$close" = "1" ]; then
-    # The ledger rows written since the feature's last commit — the approval,
-    # the landing — exist only in the worktree. Carry the artifact directory
-    # into the checkout before the worktree goes, so the record survives.
-    local src dst
-    src="$(orch_feature_dir "$feature")"; dst="$(orch_main_repo)/docs/features/$feature"
-    mkdir -p "$dst" && cp -R "$src/." "$dst/" 2>/dev/null
-    git -C "$(orch_main_repo)" worktree remove --force "$(orch_feature_repo "$feature")" >/dev/null 2>&1 || true
-    printf 'closed the worktree for %s; artifacts are in docs/features/%s of the checkout (commit them); branch feature/%s is kept\n' "$feature" "$feature" "$feature"
-  fi
+# merge_close <feature> — carry the artifacts into the checkout and remove
+# the worktree. The ledger rows written since the feature's last commit —
+# the approval, the landing — exist only in the worktree, so the copy comes
+# first. After this, nothing in the calling process may resolve paths
+# through the feature's tree: it is gone, and a caller whose ORCH_REPO
+# pointed there would resolve the main repo to a directory that no longer
+# exists. Write your ledger rows before calling this.
+merge_close() {
+  local feature="$1" src dst main
+  main="$(orch_main_repo)"
+  src="$(orch_feature_dir "$feature")"; dst="$main/docs/features/$feature"
+  [ "$src" = "$dst" ] || { mkdir -p "$dst" && cp -R "$src/." "$dst/" 2>/dev/null; }
+  git -C "$main" worktree remove --force "$(orch_feature_repo "$feature")" >/dev/null 2>&1 || true
+  printf 'closed the worktree for %s; artifacts are in docs/features/%s of the checkout (commit them); branch feature/%s is kept\n' "$feature" "$feature" "$feature"
 }
 
 merge_status() {

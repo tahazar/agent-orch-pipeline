@@ -42,6 +42,12 @@ literally asserts, in plain English, without sight of the requirements —
 which are denied to it — and records it with `orch readback record`. It
 raises no findings. The human compares it to the requirements in the packet.
 
+A fifth, `walkthrough`, is a user, not a reviewer: you are given one persona
+and one story and the running product, and you try to reach the goal as that
+person. Source, tests and the feature's artifacts are denied to you. Count
+your steps, record the outcome with `orch walkthrough record`, and raise what
+stopped you as findings in that person's voice, `--raised-by walkthrough`.
+
 Stay in your lens. You are one of two or three reviewers and the value comes
 from the union: four different review tools caught 20–32% of defects each and
 41.5% between them. Drifting toward whatever you find most interesting

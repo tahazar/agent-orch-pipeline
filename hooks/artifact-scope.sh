@@ -75,6 +75,23 @@ case "$rel" in .orch/holdout/*)
   exit 0 ;;
 esac
 
+# The walkthrough is a user, not a reviewer: it gets the persona and the
+# story (docs/product/**) and the running product, and is denied the source,
+# the tests and every feature artifact. A walkthrough that has read the code
+# knows where the button is because it read the handler, not because a
+# person could find it.
+if [ "$role" = code-reviewer ] && [ "${ORCH_LENS:-}" = walkthrough ]; then
+  . "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
+  deny=''
+  case "$rel" in docs/product/*) exit 0 ;; docs/features/*) deny='a feature artifact' ;; esac
+  [ -n "$deny" ] || { declare -f _sensor_is_source >/dev/null 2>&1 && { _sensor_is_source "$rel" || _sensor_is_test "$rel"; } && deny='source or a test'; }
+  [ -n "$deny" ] || exit 0
+  ORCH_LEDGER_FEATURE="${ORCH_FEATURE:-$(orch_current_feature)}" \
+    ledger_append gate.blocked gate artifact-scope role code-reviewer lens walkthrough path "$rel" reason "$deny"
+  printf 'BLOCKED: the walkthrough does not read %s (%s).\n\nYou are a person using the product, not a reviewer reading it. What you can see is the product itself, and docs/product/**. If you cannot reach the goal, that is the finding.\n' "$rel" "$deny" >&2
+  exit 2
+fi
+
 # Only docs/features/** is scoped; source visibility is write-scope's and the
 # worktree's problem, and a repo's own README is nobody's secret.
 case "$rel" in docs/features/*) ;; *) exit 0 ;; esac

@@ -13,7 +13,8 @@
 #   crew     tiers, blind roles, reviewers, auditor, refactor pass, read-back,
 #            holdout. Needs the Claude Code launcher and substrate.
 #   upkeep   repo-wide census, overnight refactor passes, morning selection.
-#   product  personas, stories, the walkthrough, the night. Not built yet.
+#   product  personas, stories, the walkthrough, the night, the morning.
+#            Needs a runnable product for the walkthrough (ORCH_PRODUCT_CMD).
 #
 # Absent file: floor and crew, which is what orch did before layers existed.
 # A command from a layer that is off refuses with one line saying so — the
@@ -83,7 +84,11 @@ layers_prereq() {  # layers_prereq <layer> -> '' if satisfied, else the gap
     floor)   have git && have jq || printf 'git and jq' ;;
     crew)    have claude || printf 'the claude CLI on PATH' ;;
     upkeep)  have claude || printf 'the claude CLI on PATH' ;;
-    product) printf 'not built yet' ;;
+    product)
+      if ! have claude; then printf 'the claude CLI on PATH'
+      elif [ ! -d "$(orch_main_repo)/docs/product" ]; then printf 'docs/product/ with a persona and a story'
+      elif [ -z "${ORCH_PRODUCT_CMD:-}" ]; then printf 'ORCH_PRODUCT_CMD, so the walkthrough can start the product'
+      fi ;;
   esac
   return 0
 }
