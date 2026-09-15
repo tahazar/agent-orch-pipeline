@@ -33,6 +33,7 @@ ORCH_HOME="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export ORCH_HOME ORCH_PROG
 
 . "$ORCH_HOME/lib/ledger.sh" 2>/dev/null || exit 0
+. "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true   # ORCH_AXIOM_PATHS
 
 role="${ORCH_ROLE:-}"
 [ -n "$role" ] || exit 0   # unroled session: nothing to confine
@@ -76,7 +77,7 @@ DEVTESTS="${ORCH_DEV_TEST_GLOB:-test/dev/* tests/dev/* spec/dev/*}"
 # Trusted configuration: the files that decide what "the tests pass" means.
 # A change to the test command, the CI workflow, or a snapshot directory is
 # an axiom, and at strict the developer does not get to add axioms.
-AXIOMS="${ORCH_AXIOM_PATHS:-.github/* .gitlab-ci.yml Jenkinsfile jest.config.* vitest.config.* pytest.ini tox.ini setup.cfg .eslintrc* eslint.config.* .mocharc* __snapshots__/* *.snap}"
+AXIOMS="${ORCH_AXIOM_PATHS:-.github/* .gitlab-ci.yml Jenkinsfile jest.config.* vitest.config.* pytest.ini tox.ini setup.cfg .eslintrc* eslint.config.* .mocharc* __snapshots__/* *.snap}"   # default mirrors lib/axioms.sh"
 
 case "$role" in
   tech-lead)

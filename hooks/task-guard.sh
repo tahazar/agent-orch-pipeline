@@ -28,6 +28,8 @@ export ORCH_HOME ORCH_PROG
 . "$ORCH_HOME/lib/findings.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/statement.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/spec.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
 
@@ -99,6 +101,21 @@ written against the old statement do not describe the new one. Re-read
 requirements.md, amend the tests, and attest the red phase again."
       fi
     fi
+    # Every requirement id must be cited by an oracle test before the oracle
+    # is frozen — a requirement nothing cites is one nothing will fail for.
+    if declare -f spec_raise >/dev/null 2>&1 && [ "$(escalate_rung "$feature" 2>/dev/null || printf 0)" -ge 2 ]; then
+      red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      n_unc="$(spec_raise "$feature" "${red_sha:-HEAD}" 2>/dev/null | tail -1)"
+      if [ "${n_unc:-0}" != "unchecked" ] && [ "${n_unc:-0}" -gt 0 ]; then
+        block "$n_unc requirement(s) cited by no oracle test" \
+"$(findings_current "$feature" | jq -r 'select(.raised_by=="coverage" and .status=="open") | "  \(.id)  \(.file):\(.line)  \(.claim)"')
+
+Every requirement id in requirements.md must appear in the name or a comment of
+an oracle test. Add the test, or dispute the finding by naming the ambiguity:
+
+  orch findings dispute $feature <id> --reason \"<why it cannot be turned into an assertion>\""
+      fi
+    fi
     # Freeze the oracle: from here on, the tests that pass must be these.
     if declare -f oracle_freeze >/dev/null 2>&1; then
       red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
@@ -126,6 +143,23 @@ If it is already green, it is green at a sha older than HEAD — run it again."
     if declare -f oracle_check >/dev/null 2>&1; then
       green_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
       msg="$(oracle_check "$feature" "${green_sha:-HEAD}" 2>&1)" || block "the oracle moved" "$msg"
+    fi
+    # No new escape hatches. Each increase against the base is a blocking
+    # finding raised by `axioms`; an open one holds the gate, a disputed one
+    # does not.
+    if declare -f axioms_raise >/dev/null 2>&1; then
+      base="$(git -C "$ORCH_REPO" merge-base "$(escalate_base_branch)" "${green_sha:-HEAD}" 2>/dev/null)"
+      n_ax="$(axioms_raise "$feature" "${base:-$(escalate_base_branch)}" "${green_sha:-HEAD}" 2>/dev/null | tail -1)"
+      if [ "${n_ax:-0}" -gt 0 ]; then
+        block "$n_ax new escape hatch(es) in the diff" \
+"$(axioms_open "$feature")
+
+A skip, an ignore, a disabled lint or a changed test config is a \`sorry\` with a
+different spelling: the suite can go green without proving anything. Remove
+it, or dispute the finding with a reason the auditor can test:
+
+  orch findings dispute $feature <id> --reason \"<why this one is legitimate>\""
+      fi
     fi
     ;;
 

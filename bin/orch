@@ -66,6 +66,9 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch oracle freeze <F> [--sha S]     hash the test tree; the tests that pass must be these
   orch oracle check <F> [--sha S]      exit 7 ORACLE_MOVED if the test tree differs
 
+  orch axioms <F> [--base B]           new escape hatches in the diff; exit 1 if any
+  orch spec coverage <F>               which oracle tests cite each requirement id
+
   orch gate read <F> <gate>            gate state, as JSON
   orch gate set  <F> <gate> <met|open> [--sha SHA]
   orch gate check <F> <gate>           exit 0 only if met for the current HEAD
@@ -550,6 +553,41 @@ be compared against what you actually said.
         cat "$(evidence_path "$f")" 2>/dev/null | jq -c '.'
         ;;
       *) die "evidence: expected verify or show" ;;
+    esac
+    ;;
+
+  axioms)
+    . "$ORCH_HOME/lib/axioms.sh"
+    . "$ORCH_HOME/lib/escalate.sh"
+    f="$(need "${1:-}" 'axioms: needs a feature')"; shift 2>/dev/null || true
+    base="$(opt base "$(git -C "$ORCH_REPO" merge-base "$(escalate_base_branch)" HEAD 2>/dev/null || escalate_base_branch)" "$@")"
+    found="$(axioms_scan "$base" HEAD)"
+    if [ "$(printf '%s' "$found" | jq 'length')" = "0" ]; then
+      printf 'no new escape hatches in %s (against %s).\n' "$f" "$(printf '%s' "$base" | cut -c1-12)"
+      exit 0
+    fi
+    printf '%s' "$found" | jq -r '.[] | if .kind=="config"
+      then "  CONFIG   \(.file)"
+      else "  \(.file):\(.line)  \(.pattern)  (\(.base) -> \(.head))" end'
+    printf '\nEach is a blocking finding at the tests-pass gate. Fix it, or dispute it with a reason.\n' >&2
+    exit 1
+    ;;
+
+  spec)
+    . "$ORCH_HOME/lib/spec.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'spec: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      coverage)
+        cov="$(spec_coverage "$f" "$(opt sha "$(orch_head_sha)" "$@")")"
+        if [ "$(printf '%s' "$cov" | jq 'length')" = "0" ]; then
+          printf 'requirements.md for %s defines no requirement ids (R1, R2, ...), so nothing can cite one.\n' "$f"
+          exit 0
+        fi
+        printf '%s' "$cov" | jq -r '.[] | "  \(.id)  " + (if (.tests|length)==0 then "UNCOVERED" else (.tests | join(", ")) end)'
+        printf '%s' "$cov" | jq -e 'all(.[]; (.tests|length) > 0)' >/dev/null
+        ;;
+      *) die "spec: expected coverage" ;;
     esac
     ;;
 
