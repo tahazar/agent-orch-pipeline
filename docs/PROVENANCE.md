@@ -211,6 +211,36 @@ tests) in `docs/VERIFICATION.md`.
 *Acts on:* gap 3 in `docs/VERIFICATION.md`, as the hand-run version of an
 enumerated trust base.
 
+## [P44] Model lineup, pricing and effort guidance — **verified**, first-hand
+
+> Anthropic's bundled `claude-api` reference (model table cached 2026-06-24),
+> the Claude Code sub-agents documentation at code.claude.com (fetched
+> 2026-09-15), and `claude --help` on CLI 2.1.272.
+
+Read directly. Model ids and first-party prices per million tokens: Claude
+Fable 5.1 `claude-fable-5-1` $10 in / $50 out; Claude Opus 5 `claude-opus-5`
+$5 / $25; Claude Sonnet 5 `claude-sonnet-5` $2 / $10; Haiku 4.5 $1 / $5.
+Effort levels `low`/`medium`/`high`/`xhigh`/`max`; the reference's own
+guidance: `high` is the default and recommended start, `xhigh` "the best
+setting for most coding and agentic use cases" on Sonnet 5 and the Opus 4.7+
+line, `low` for subagents and simple tasks; on Fable, "lower effort settings —
+including `low` — still perform very well ... often exceeding the `xhigh` or
+even `max` performance of previous models", and at `xhigh`/`max` a long
+deliverable may be drafted in thinking and again in the reply. Fable-specific
+behaviour carried into `agents/director.md`: prompts written for prior models
+are often too prescriptive; on long unattended runs it can end a turn by
+describing the next step; asynchronous sub-agent delegation outperforms
+spawn-and-block.
+
+Sub-agent frontmatter accepts `model:` as an alias (`sonnet`, `opus`,
+`haiku`, `fable`), a full id, or `inherit`, and `effort:` with the five
+levels; `claude --agent <name>` takes the definition's model. `--effort
+<level>` is a CLI flag on 2.1.272, which is what `lib/launcher/base.sh` passes
+for a tier override.
+
+*Acts on:* every `model:`/`effort:` line in `agents/`, `test/agent-lint.sh`,
+and "Who runs what" in `docs/AGENT-TDD.md`.
+
 ---
 
 ## [P35] Claude Code substrate — **verified**, first-hand

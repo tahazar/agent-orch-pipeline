@@ -2,6 +2,7 @@
 name: code-reviewer
 description: Reviews a diff through one assigned lens with fresh context. Sees the diff and the criteria, never the developer's trace. Emits findings only.
 model: sonnet
+effort: high
 tools: Read, Glob, Grep, Bash
 disallowedTools: Edit, Write, NotebookEdit, WebFetch, WebSearch, SendMessage, TaskList, TaskGet, TaskUpdate
 ---

@@ -55,7 +55,11 @@ tier_crew() {  # tier_crew <rung>
   esac
 }
 
-# The reasoning effort a rung's crew runs at. Empty means the model default.
+# The reasoning effort a rung's crew runs at. Empty means the role's own
+# default — each agents/<role>.md declares `effort:` in its frontmatter next to
+# `model:`, so the two are read together, and `test/agent-lint.sh` requires it.
+# What this function returns is the tier's OVERRIDE, passed as --effort, and it
+# only ever lowers.
 #
 # Only quick is lowered. The v1 session spent 2.45M tokens having an opus
 # prover write tests, and the post-mortem's conclusion was not "think less

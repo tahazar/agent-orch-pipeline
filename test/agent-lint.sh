@@ -84,14 +84,26 @@ done
 
 # Model placement follows the measured v1 session, not deference: the opus
 # prover spent 2.45M tokens writing tests while the sonnet inspector's findings
-# held up fine. Opus is reserved for the roles that decide — planning,
-# coordination, adjudication. Writing tests from explicit requirements is
-# producer work.
-for r in developer test-engineer; do
+# held up fine. The frontier model is reserved for the roles that decide —
+# planning, coordination, adjudication — and that is `fable` [P44]. Writing
+# tests and code from explicit requirements is producer work and runs sonnet.
+# Aliases, not full ids: an alias tracks the current generation, and pinning a
+# dated id is how a pipeline quietly ages.
+for r in developer test-engineer code-reviewer; do
   [ "$(fm "$AGENTS/$r.md" model)" = "sonnet" ]; chk $? "$r runs on sonnet — producer work"
 done
 for r in director tech-lead auditor; do
-  [ "$(fm "$AGENTS/$r.md" model)" = "opus" ]; chk $? "$r runs on opus — it decides things"
+  [ "$(fm "$AGENTS/$r.md" model)" = "fable" ]; chk $? "$r runs on fable — it decides things"
+done
+
+# Effort is a per-role default, declared where the model is, so the two are
+# read together. A tier may lower it at spawn (quick runs low); nothing raises
+# it silently. The set is the CLI's own.
+for r in $ROLES; do
+  case "$(fm "$AGENTS/$r.md" effort)" in
+    low|medium|high|xhigh|max) ok "$r declares its effort ($(fm "$AGENTS/$r.md" effort))" ;;
+    *) bad "$r declares no valid effort — the role's thinking depth is then whatever the session happened to inherit" ;;
+  esac
 done
 
 printf '\nevery invariant maps to a mechanism:\n'

@@ -2,6 +2,7 @@
 name: developer
 description: The only implementer. Works in an isolated worktree, writes source but never tests, and acts on review findings inline.
 model: sonnet
+effort: xhigh
 isolation: worktree
 tools: Read, Glob, Grep, Bash, Edit, Write, NotebookEdit
 disallowedTools: WebFetch, WebSearch, SendMessage

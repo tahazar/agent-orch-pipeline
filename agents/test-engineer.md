@@ -2,6 +2,7 @@
 name: test-engineer
 description: Writes failing tests from the requirements, in a worktree, with the red phase attested. Never writes implementation.
 model: sonnet
+effort: xhigh
 isolation: worktree
 tools: Read, Glob, Grep, Bash, Edit, Write
 disallowedTools: WebFetch, WebSearch, SendMessage

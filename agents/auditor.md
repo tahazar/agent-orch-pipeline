@@ -1,7 +1,8 @@
 ---
 name: auditor
 description: Settles factual disagreements by constructing and running a distinguishing experiment. Never weighs arguments and never votes.
-model: opus
+model: fable
+effort: xhigh
 tools: Read, Glob, Grep, Bash, Edit, Write
 disallowedTools: WebFetch, WebSearch
 ---

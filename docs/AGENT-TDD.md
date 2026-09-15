@@ -261,6 +261,65 @@ decides what a failing sensor does.
 
 ---
 
+## Who runs what
+
+The rule is the one the v1 post-mortem produced, applied to the current
+lineup: **the frontier model is reserved for the roles that decide; producers
+run the cheapest model that holds quality.** What changed is that the frontier
+model is now `fable`, its own reference says its lower effort levels often beat
+prior models at `xhigh`, and that reference lists the prices [P44]:
+
+| model | input $/M | output $/M | best at, per its reference |
+|---|---|---|---|
+| `fable` (Claude Fable 5.1) | 10 | 50 | long-horizon autonomous runs, first-shot implementation of well-specified systems, parallel sub-agent delegation, review and debugging |
+| `opus` (Claude Opus 5) | 5 | 25 | the default general model |
+| `sonnet` (Claude Sonnet 5) | 2 | 10 | coding and agentic work at `xhigh` |
+| `haiku` (Haiku 4.5) | 1 | 5 | subagents and simple tasks |
+
+Aliases, not dated ids: an alias tracks the current generation and a pinned id
+is how a pipeline quietly ages. Effort is declared in each role's frontmatter
+next to its model, so the two are read together; a tier may lower it at spawn
+(`quick` runs `low`) and nothing raises it silently.
+
+| role / phase | model | effort | why this, why not more |
+|---|---|---|---|
+| `director` | `fable` | `high` | the run's plan and every gate decision; long-lived, so the reference's "high is the start, sweep down to medium where quality holds" applies directly. Its memory surface is the ledger |
+| `tech-lead` — contract, requirements, tier | `fable` | `high` | the most leveraged single generation in the pipeline and the one Fable is built for: design first, write once. Not `xhigh`: the reference warns that on long deliverables `xhigh` drafts the output in thinking and again in the reply, roughly doubling output tokens; move up only where measured |
+| `auditor` — one gate, fresh | `fable` | `xhigh` | adjudication by experiment; short-lived and per gate, so the cost is bounded, and `xhigh` is where the reference says the model's verification behaviour is most rigorous |
+| `test-engineer` — the oracle | `sonnet` | `xhigh` | one pass, and it is the statement everything else trusts; `xhigh` is the reference's setting for coding on Sonnet 5 |
+| `developer` — implement, repairs | `sonnet` | `xhigh` | producer work; the volume role, so the model is the cheap one and the effort is the coding sweet spot. `quick` lowers it to `low` |
+| `code-reviewer` × lenses | `sonnet` | `high` | the value is the union of independent lenses [P8], not depth in any one; runs ×2–3 per review and delta-scoped |
+| refactor pass (phase 5) | `sonnet` | `xhigh` | one fresh context, design only, with a number to hit. The sweep-up candidate is `opus` at `high` if the discard rate says sonnet cannot do the step |
+| read-back (phase 7) | `sonnet` | `low` | translation, not judgement; `haiku` is the sweep-down |
+| best-of-N candidates | `sonnet` | `xhigh` | N × the developer; diversity comes from the directives, not the model. One candidate on `opus` is a cheap diversity axis to try |
+| diagnose hypotheses | `sonnet` | `high` | K read-only contexts that must each return a command; execution decides, not depth |
+
+Three things the reference says about Fable that bear on how the roles are
+written, recorded here so the prompts get re-checked rather than assumed:
+
+- **Prompts written for prior models are often too prescriptive and reduce
+  its output quality.** `director.md` is a numbered procedure. The
+  recommended check is an A/B with the step-by-step scaffolding removed —
+  state the goal and the gates, not the steps. That is an `orch lab`
+  experiment, not a blind edit.
+- **On long unattended runs it can end a turn by describing the next step
+  instead of taking it.** That is precisely the failure the first live run
+  had — a director at an empty prompt — so the documented guard is now in
+  `director.md`: check the last paragraph before ending a turn.
+- **Sub-agent delegation is reliable, and asynchronous delegation beats
+  spawn-and-block.** `orch` already does this: crews are spawned and the
+  director carries on; a message is never load-bearing. Keep it that way.
+
+The efficiency claim, stated so the report can check it: the frontier model
+runs in three short-lived or low-volume places, and every high-volume token —
+implementation, tests, repairs, reviews, candidates — is produced on the
+cheapest model at the effort its own reference recommends for coding. If
+`orch report` shows the coordinator share of tokens rising above the 28%
+baseline after the switch to `fable`, the director's effort is the first thing
+to sweep down.
+
+---
+
 ## What to measure, and what would sink it
 
 Every new piece is a mechanism with a number, so every one can be deleted on

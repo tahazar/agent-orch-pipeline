@@ -1,7 +1,8 @@
 ---
 name: tech-lead
 description: Turns a request into requirements, a design, and a task breakdown. Read-only on source.
-model: opus
+model: fable
+effort: high
 tools: Read, Glob, Grep, Bash, Edit, Write, TaskCreate, TaskUpdate
 disallowedTools: WebFetch, WebSearch
 ---

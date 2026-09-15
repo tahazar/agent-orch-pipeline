@@ -271,7 +271,7 @@ structure was measurably wrong, and five mechanisms here exist because of it.
 | 28% of tokens went to roles that shipped nothing, incl. an auditor mostly idle between gates at 1.32M | the auditor is ephemeral: `orch audit` spawns it per gate, fresh, and it dies with its verdict |
 | 301k words of hand-authored state; the worst anomaly class (tree-drift, ×3) was status files going stale in one copy of the tree | status is rendered from the ledger, never authored; decisions are ledger events |
 | every agent re-read the whole artifact tree every turn | `hooks/artifact-scope.sh` — the blind roles read `requirements.md` and `request.md`, nothing else |
-| an opus test-writer burned 2.45M tokens; the sonnet reviewer's findings held up | producers run sonnet; opus is reserved for roles that decide; `quick` runs at low effort |
+| an opus test-writer burned 2.45M tokens; the sonnet reviewer's findings held up | producers run sonnet; the frontier model (`fable`) is reserved for roles that decide; `quick` runs at low effort — see [`docs/AGENT-TDD.md`](docs/AGENT-TDD.md), "Who runs what" |
 | one feature took five review cycles, each re-reading the whole feature | `orch review scope` — a re-review gets the open findings and the diff since the last verdict |
 | the longest-lived session ended at ~1.1M tokens of accumulated context | `orch team recycle` — respawn on compaction; agents are stateless relative to the ledger |
 
