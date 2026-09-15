@@ -374,6 +374,12 @@ Sinking conditions, stated up front:
    its own worktree; kept by fast-forward or discarded with the numbers.
    Complexity and duplication are attested numbers (`orch run --label
    complexity|duplication -- <tool>`), not built-in extractors.
-6. ~~`spec-coverage`~~ **built**; the read-back and the approval packet are not.
+6. ~~`spec-coverage`~~ **built**; ~~the approval packet~~ **built**
+   (`orch packet`, `lib/packet.sh`), with the read-back's place in it marked.
+   The read-back itself is not: it needs a blind context that can write one
+   artifact and read nothing but the tests, and the six-role lint is a
+   deliberate constraint — a seventh role, or a `readback` lens on the
+   `code-reviewer` with a write path for one file, is a decision to make on
+   purpose.
 7. Holdout, only once the mutation and refactor numbers say the visible
    oracle is being overfit.

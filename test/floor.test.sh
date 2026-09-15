@@ -180,4 +180,21 @@ contains "$out" "predates the statement" "because the tests describe the old sta
 out="$(hook task-guard.sh "$RED" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "and a fresh red run after the freeze passes"
 
+# --- the approval packet ----------------------------------------------------
+printf '\nthe approval packet leads with the statement and ends with the diff:\n'
+out="$("$ORCH" packet F041-oracle 2>&1)"; rc=$?
+chk_rc 0 "$rc" "the packet renders"
+contains "$out" "1. what was asked" "the request first"
+contains "$out" "statement: as frozen" "then whether the statement held"
+contains "$out" "oracle:    as frozen at the red phase" "and the oracle"
+contains "$out" "read-back would go here" "with the read-back's place marked, honestly, as not built"
+contains "$out" "4. escape hatches" "the axiom delta"
+contains "$out" "7. evidence at HEAD" "the evidence rows"
+contains "$out" "8. the diff, last" "and the diff last"
+i_stmt="$(printf '%s' "$out" | grep -n '1. what was asked' | cut -d: -f1)"
+i_diff="$(printf '%s' "$out" | grep -n '8. the diff, last' | cut -d: -f1)"
+[ "$i_stmt" -lt "$i_diff" ]; chk $? "in that order"
+out="$("$ORCH" approve F041-oracle --gate human 2>&1)"
+contains "$out" "orch packet F041-oracle" "approving without the packet points at it"
+
 finish floor

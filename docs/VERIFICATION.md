@@ -259,6 +259,9 @@ Mechanical; per-runner extractors are the cost. Medium.
 
 ### 5. The human is handed the proof, not the statement
 
+**Status: the packet is built** (`orch packet`); the read-back is not — see
+`AGENT-TDD.md`, order of work, item 6.
+
 **FLT:** the reviewer reads `Thm_fermat_last_theorem.lean` (one line),
 `PROOF-PATH.md`, the axiom list, and the comparator verdict. Nobody reads the
 proof. Prove2Me goes further: before a statement is published, a **read-back**

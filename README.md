@@ -137,9 +137,12 @@ findings are delivered to the developer verbatim, and every test result has to
 come from a real command — see [Evidence](#evidence).
 
 **5. Approve the merge.** Nothing reaches your base branch without this, and it
-binds to the exact commit you approved:
+binds to the exact commit you approved. Read the packet first — the request,
+whether the statement and the oracle held, which tests cite each requirement,
+any escape hatch in the diff, the sensors, the evidence, and the diff last:
 
 ```bash
+orch packet F001-csv-parser
 orch approve F001-csv-parser --gate human
 ```
 
@@ -398,7 +401,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-717 assertions across fifteen suites. No Claude session, no API key, no network.
+727 assertions across fifteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -426,6 +429,7 @@ lib/
   axioms.sh       escape hatches        spec.sh       requirement coverage
   sensors.sh      diff coverage, mutation score
   refactor.sh     the refactor pass: trigger, invariant, exit
+  packet.sh       the approval packet: statement first, diff last
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

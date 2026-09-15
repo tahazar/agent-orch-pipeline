@@ -75,6 +75,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch gate read <F> <gate>            gate state, as JSON
   orch gate set  <F> <gate> <met|open> [--sha SHA]
   orch gate check <F> <gate>           exit 0 only if met for the current HEAD
+  orch packet <F>                      what to read before approving: statement first, diff last
   orch approve <F> --gate <gate>       human approval, from any terminal
 
   orch health signals <F>              which degradation signals are firing
@@ -682,12 +683,19 @@ be compared against what you actually said.
     esac
     ;;
 
+  packet)
+    . "$ORCH_HOME/lib/packet.sh"
+    packet_render "$(need "${1:-}" 'packet: needs a feature')"
+    ;;
+
   approve)
     . "$ORCH_HOME/lib/substrate/base.sh"
     f="$(need "${1:-}" 'approve: needs a feature')"; shift
     g="$(opt gate human "$@")"
     sha="$(opt sha "$(orch_head_sha)" "$@")"
     substrate_set_gate "$f" "$g" met "$sha"
+    [ "$g" != human ] || [ -n "${ORCH_PACKET_SEEN:-}" ] || \
+      printf 'If you have not read it:  orch packet %s  — the statement and every check, before the diff.\n' "$f" >&2
     printf 'approved: %s gate `%s` at %s\n' "$f" "$g" "$(printf '%s' "$sha" | cut -c1-12)"
     printf 'This is durable and greppable, survives a dead session, and is scoped to that\nsha — move the branch and the approval stops applying.\n'
     ;;
