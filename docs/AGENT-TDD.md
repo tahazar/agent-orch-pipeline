@@ -288,10 +288,10 @@ next to its model, so the two are read together; a tier may lower it at spawn
 | `auditor` — one gate, fresh | `fable` | `xhigh` | adjudication by experiment; short-lived and per gate, so the cost is bounded, and `xhigh` is where the reference says the model's verification behaviour is most rigorous |
 | `test-engineer` — the oracle | `sonnet` | `xhigh` | one pass, and it is the statement everything else trusts; `xhigh` is the reference's setting for coding on Sonnet 5 |
 | `developer` — implement, repairs | `sonnet` | `xhigh` | producer work; the volume role, so the model is the cheap one and the effort is the coding sweet spot. `quick` lowers it to `low` |
-| `code-reviewer` × lenses | `sonnet` | `high` | the value is the union of independent lenses [P8], not depth in any one; runs ×2–3 per review and delta-scoped |
+| `code-reviewer` × lenses | `sonnet`; the `correctness` lens on `opus` | `high` | the value is the union of independent lenses [P8], not depth in any one, and a second model is the cheapest independence there is — the ensemble was meant to be (model × lens) diverse and until now ran one model. Delta-scoped; `orch findings yield` decides whether the opus lens stays |
 | refactor pass (phase 5) | `sonnet` | `xhigh` | one fresh context, design only, with a number to hit. The sweep-up candidate is `opus` at `high` if the discard rate says sonnet cannot do the step |
 | read-back (phase 7) | `sonnet` | `low` | translation, not judgement; `haiku` is the sweep-down |
-| best-of-N candidates | `sonnet` | `xhigh` | N × the developer; diversity comes from the directives, not the model. One candidate on `opus` is a cheap diversity axis to try |
+| best-of-N candidates | `sonnet` | `xhigh` | N × the developer; diversity comes from the directives, not the model. One candidate on `opus` is the next diversity axis to try, and selection stays mechanical so the model cannot bias the pick |
 | diagnose hypotheses | `sonnet` | `high` | K read-only contexts that must each return a command; execution decides, not depth |
 
 Three things the reference says about Fable that bear on how the roles are

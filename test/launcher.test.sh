@@ -52,6 +52,32 @@ out="$("$ORCH" team start --feature F031-strict 2>&1)"
 contains "$out" "test-engineer" "strict adds the test-engineer"
 contains "$out" "code-reviewer" "and the code-reviewer"
 
+printf '\nthe review ensemble is spawned, not described:\n'
+n_lens="$(printf '%s' "$out" | grep -c 'ORCH_LENS=')"
+[ "$n_lens" = "3" ]; chk $? "three lenses, three sessions (got $n_lens)"
+for l in correctness failure-modes reproduction; do
+  contains "$out" "code-reviewer-$l" "a session named for the $l lens"
+  contains "$out" "lens \`$l\`" "whose orders name that lens"
+done
+n_opus="$(printf '%s' "$out" | grep -c -- '--model opus')"
+[ "$n_opus" = "1" ]; chk $? "exactly one lens runs on opus (got $n_opus) — the model axis of the ensemble"
+printf '%s' "$out" | grep -- '--model opus' | grep -q 'code-reviewer-correctness'
+chk $? "and it is the correctness lens by default"
+not_contains "$(printf '%s' "$out" | grep 'agent developer')" "--model" "the developer keeps its frontmatter model"
+out="$(ORCH_OPUS_LENS= "$ORCH" team start --feature F031-strict 2>&1)"
+not_contains "$out" "--model" "an empty ORCH_OPUS_LENS puts every lens on the role's own model"
+out="$(ORCH_REVIEW_LENSES=correctness "$ORCH" team start --feature F031-strict 2>&1)"
+[ "$(printf '%s' "$out" | grep -c 'ORCH_LENS=')" = "1" ]; chk $? "the lens list is overridable"
+
+printf '\na reviewer spawned by hand gets a lens too:\n'
+out="$("$ORCH" spawn code-reviewer --feature F031-strict --lens reproduction 2>&1)"
+contains "$out" "ORCH_LENS=reproduction" "the lens asked for"
+contains "$out" "code-reviewer-reproduction" "in the session name"
+not_contains "$out" "--model" "and no model override, since it is not the opus lens"
+out="$("$ORCH" spawn code-reviewer --feature F031-strict 2>&1)"
+contains "$out" "ORCH_LENS=correctness" "with no --lens, the first lens"
+contains "$out" "--model opus" "which is the opus lens"
+
 printf '\nevery session in a team shares its coordination environment:\n'
 out="$("$ORCH" team start --feature F031-strict 2>&1)"
 n_tl="$(printf '%s' "$out" | grep -c 'CLAUDE_CODE_TASK_LIST_ID=')"
@@ -99,6 +125,15 @@ contains "$out" "fresh context, same role" "and says what recycling means"
 out="$("$ORCH" team recycle nonesuch 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "recycling a session orch never started is refused"
 contains "$out" "orch did not start it" "with the reason"
+
+printf '\\na recycled reviewer is the same reviewer:\\n'
+"$ORCH" team start --feature F031-strict >/dev/null 2>&1
+out="$("$ORCH" team recycle code-reviewer-correctness 2>&1)"
+contains "$out" "ORCH_LENS=correctness" "a recycled reviewer comes back as the same lens"
+contains "$out" "--model opus" "on the same model — the yield report must keep describing the same reviewer"
+out="$("$ORCH" team recycle code-reviewer-reproduction 2>&1)"
+contains "$out" "ORCH_LENS=reproduction" "and a non-opus lens comes back as itself"
+not_contains "$out" "--model" "without inheriting the opus override"
 
 printf '\na launcher that starts nothing does not claim it did:\n'
 LEDGER="$ORCH_REPO/docs/features/_orch/ledger.jsonl"

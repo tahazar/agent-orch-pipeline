@@ -279,9 +279,17 @@ be compared against what you actually said.
 
   spawn)
     . "$ORCH_HOME/lib/launcher/base.sh"
+    . "$ORCH_HOME/lib/tier.sh"
     role="$(need "${1:-}" 'spawn: needs a role')"; shift 2>/dev/null || true
     f="$(opt feature '' "$@")"
-    name="$(launcher_session_name "$role" "$(opt suffix '' "$@")")"
+    # A reviewer spawned by hand still gets a lens, and the lens's model: the
+    # yield report groups by lens, and a reviewer with none is invisible to it.
+    lens="$(opt lens '' "$@")"
+    if [ "$role" = "code-reviewer" ]; then
+      [ -n "$lens" ] || lens="$(set -- $(tier_lenses); printf '%s' "$1")"
+      export ORCH_LENS="$lens" ORCH_MODEL="${ORCH_MODEL:-$(tier_lens_model "$lens")}"
+    fi
+    name="$(launcher_session_name "$role" "$(opt suffix "${lens:-}" "$@")")"
     # Attributed explicitly. Falling through to orch_current_feature would bill
     # a run-level session to whichever feature happened to be started last.
     ORCH_LEDGER_FEATURE="${f:-_orch}" \
@@ -387,6 +395,20 @@ be compared against what you actually said.
           [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
           eff="$(tier_effort "$rung")"
           for r in $crew; do
+            if [ "$r" = "code-reviewer" ]; then
+              # The ensemble: one session per lens, named by it, and one lens
+              # on opus. A subshell per spawn so the lens and model reach the
+              # orders, the env and the ledger row without leaking into the
+              # next role's spawn.
+              for lens in $(tier_lenses); do
+                ( export ORCH_LENS="$lens" ORCH_MODEL="$(tier_lens_model "$lens")"
+                  ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
+                    ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
+                    launcher_spawn "$r" "$(launcher_session_name "$r" "$lens")" "$ORCH_REPO" \
+                      $(launcher_env "$r" "$f") ) || true
+              done
+              continue
+            fi
             ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
               ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
               launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
@@ -442,6 +464,12 @@ be compared against what you actually said.
         role="$(printf '%s' "$row" | jq -r '.role')"
         rf="$(printf '%s' "$row" | jq -r '.feature')"
         [ "$rf" = "_orch" ] && rf=''
+        # Same lens, same model: a reviewer recycled onto a different lens
+        # would carry its findings' raised_by with it and corrupt the yield.
+        lens="$(printf '%s' "$row" | jq -r '.lens // ""')"
+        model="$(printf '%s' "$row" | jq -r '.model // ""')"
+        [ -n "$lens" ] && export ORCH_LENS="$lens"
+        [ -n "$model" ] && export ORCH_MODEL="$model"
         launcher_kill "$n" || true
         eff=''
         if [ -n "$rf" ]; then

@@ -224,7 +224,7 @@ director            owns the run, the merge, the human gate
 │  │
 │  ├─ test-engineer writes failing tests from requirements alone
 │  ├─ developer     makes them pass; cannot edit tests
-│  └─ code-reviewer fresh context, sees only the diff
+│  └─ code-reviewer ×3 lenses, fresh context, sees only the diff; one lens runs opus
 │
 └─ auditor          adversarial approval — spawned fresh for each gate
 ```
@@ -337,7 +337,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-501 assertions across eleven suites. No Claude session, no API key, no network.
+532 assertions across eleven suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 

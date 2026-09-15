@@ -25,7 +25,11 @@ opinion — it costs the same and finds less.
 
 ## Your lens
 
-You are given exactly one:
+You are given exactly one, in `ORCH_LENS`, and it is in your session name.
+Raise every finding with `--raised-by $ORCH_LENS` — the yield report groups by
+it, and a finding raised under any other name is invisible to it. One lens in
+the ensemble runs on a different model from the others; that is deliberate and
+it changes nothing about your job.
 
 | lens | you ask |
 |---|---|

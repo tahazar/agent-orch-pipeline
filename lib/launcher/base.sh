@@ -71,8 +71,9 @@ launcher_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # The command a session runs. Single-quoted for the shell it will be pasted or
 # sent into, so a repo path with a space does not silently split.
 #
-# ORCH_EFFORT, when set, becomes --effort; ORCH_PROMPT, when set, becomes the
-# session's opening message. Env vars rather than parameters because the
+# ORCH_EFFORT, when set, becomes --effort; ORCH_MODEL, when set, becomes
+# --model (one review lens runs opus; see lib/tier.sh); ORCH_PROMPT, when set,
+# becomes the session's opening message. Env vars rather than parameters because the
 # callers that know them (team start reading the tier, audit pinning xhigh,
 # spawn building marching orders) are two layers above the three launcher
 # implementations, and threading strings through every signature is how a seam
@@ -83,8 +84,9 @@ launcher_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # is what turned the first real run into the human doing every role's job by
 # hand. A spawned agent must wake up already told where its work is.
 launcher_claude_cmd() {  # launcher_claude_cmd <role> <name>
-  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s%s" \
+  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s%s%s" \
     "$1" "$2" "$ORCH_PERMISSION_MODE" "$(launcher_role_settings "$1")" \
+    "${ORCH_MODEL:+ --model $ORCH_MODEL}" \
     "${ORCH_EFFORT:+ --effort $ORCH_EFFORT}" \
     "${ORCH_PROMPT:+ $(launcher_shq "$ORCH_PROMPT")}"
 }
@@ -111,7 +113,7 @@ launcher_orders() {  # launcher_orders <role> [feature] [gate]
     test-engineer)
       printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and write failing tests from it alone, then attest the red phase with `orch run --feature %s --label tests --claim fail`.' "$f" "$f" "$f" ;;
     code-reviewer)
-      printf 'You are a code-reviewer for %s. Begin now: run `orch review scope %s` for your packet, review the diff through your assigned lens, and emit findings with `orch findings add`. You change nothing.' "$f" "$f" ;;
+      printf 'You are a code-reviewer for %s, lens `%s`. Begin now: run `orch review scope %s` for your packet, review the diff through that lens only, and emit findings with `orch findings add --raised-by %s`. You change nothing.' "$f" "${ORCH_LENS:-correctness}" "$f" "${ORCH_LENS:-correctness}" ;;
     auditor)
       printf 'You are the auditor for %s, gate `%s`. Begin now: read the ledger and artifacts under docs/features/%s/, verify every claim against attested evidence, then set the gate or raise findings. You exist for this gate only.' "$f" "${g:-work}" "$f" ;;
     *)
@@ -125,6 +127,10 @@ launcher_env() {  # launcher_env <role> [feature] [extra KEY=VALUE...]
   local role="$1" feature="${2:-}"; shift 2 2>/dev/null || shift $#
   printf 'ORCH_ROLE=%s\n' "$role"
   [ -n "$feature" ] && printf 'ORCH_FEATURE=%s\n' "$feature"
+  # A reviewer's lens is part of its identity, not its orders: `orch findings
+  # yield` groups by it, and a recycled reviewer must come back as the same
+  # lens or the yield numbers describe nobody.
+  [ -n "${ORCH_LENS:-}" ] && printf 'ORCH_LENS=%s\n' "$ORCH_LENS"
   printf 'ORCH_HOME=%s\n' "$ORCH_HOME"
   printf 'CLAUDE_PROJECT_DIR=%s\n' "${ORCH_REPO:-$(orch_repo_root)}"
   # Propagated, not queried. Which task list a team shares is the team's
@@ -180,10 +186,14 @@ launcher_spawn() {
       # The print launcher starts nothing, so recording a spawn would put a
       # session in the ledger that does not exist — and `orch report` would
       # then attribute a feature's cost to an agent nobody ever ran.
+      # Lens and model are recorded so `team recycle` can rebuild the
+      # session as the same reviewer on the same model, from any terminal.
       if [ "$ORCH_LAUNCHER" = "print" ]; then
-        ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
+        ledger_append agent.printed role "$role" name "$name" cwd "$cwd" \
+          lens "${ORCH_LENS:-}" model "${ORCH_MODEL:-}"
       else
-        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
+        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd" \
+          lens "${ORCH_LENS:-}" model "${ORCH_MODEL:-}"
       fi
       return 0
       ;;

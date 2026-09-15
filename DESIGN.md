@@ -128,6 +128,12 @@ Sharing one task list is what buys file locking and `blocks`/`blockedBy`
 auto-unblock. Reading all of it is a different thing, and for these two roles it
 is the thing that destroys what they are for.
 
+The ensemble is meant to be (model × lens) diverse [P10], and a different
+model is the cheapest independence available — so `orch team start` spawns one
+session per lens and puts one lens (`ORCH_OPUS_LENS`, default `correctness`)
+on `opus`. Whether that lens earns twice the price is a question for `orch
+findings yield`, like every other lens.
+
 ### Conflicts are settled by running something
 
 When reviewers disagree, the `auditor` does not count votes. It constructs an
