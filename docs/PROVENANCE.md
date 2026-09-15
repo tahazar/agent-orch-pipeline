@@ -57,6 +57,192 @@ anything that requires agents to agree.
 
 ---
 
+## [P36] The FLT formalization repository — **verified**, first-hand
+
+> Anthropic. *Fermat's Last Theorem in Lean 4.*
+> [github.com/anthropics/fermats-last-theorem](https://github.com/anthropics/fermats-last-theorem),
+> `README.md` and `formalization.yaml`, read 2026-09-15.
+
+Read directly. Figures taken from it: 29,511 theorems; 1,450 definition
+modules; 60,475 modules built; 1,052,234 declarations accepted by the
+independent kernel `nanoda` 0.4.13; the default build target fails unless
+`fermat_last_theorem` depends on exactly `propext`, `Classical.choice` and
+`Quot.sound`; no module contains `axiom`, `sorry`, `native_decide`, `unsafe`,
+`extern`, `implemented_by`, `partial def` or `#eval`; `leanprover/comparator`
+v4.33.0 confirmed the statement identical to a Mathlib-only challenge file.
+Statements live in `Theorems/`, proofs in `P2M/Sol/`. Quoted verbatim in
+`docs/VERIFICATION.md`: "with Lean as the arbiter, and are written to be
+checked rather than read", and the trust-model sentence and its caveat.
+
+*Acts on:* every gap in `docs/VERIFICATION.md`; specifically the enumerated
+escape-hatch list (gap 3) and statement identity (gaps 1 and 2).
+
+---
+
+## [P37] Prove2Me — **verified**, first-hand
+
+> Peng, T. et al. *Prove2Me: An Open Collaborative Platform for Scaling Math
+> Formalization.* arXiv:2608.28433 (paper **not** read — arxiv is blocked from
+> this environment). The agent workspace was read instead:
+> [github.com/prove2me/prove2me_workspace](https://github.com/prove2me/prove2me_workspace),
+> `SKILL.md` and `references/{prove,mission_solver,mission_auditor,mission_captain,contribute}.md`,
+> 2026-09-15.
+
+Read directly from the workspace, not the paper. The three core rules (the
+`solution` theorem must match the target's `formal_statement` exactly; never
+import your own target; sorry-free); the verdict set `ACCEPTED`,
+`SKETCH_ACCEPTED`, `CE`, `WA`, `SORRY`, `FAILED`, `ERROR`; parent theorems
+auto-resolving once every imported child is proved; the solver's instruction
+to read logged dead-ends and never retry a captain-rejected path; the
+auditor's read-back written from "only the Lean code ... never the informal
+statement", with "omitting a hypothesis is the worst failure mode"; the
+captain rule that "linking is attestation" and faithfulness is "the single
+most important thing".
+
+That the platform coordinated the FLT run, and that early runs without it
+"collapsed because agents accumulated too much local context, lost track of
+proved results, and duplicated work", is from secondary coverage of [P38] and
+is **unverified** at the source.
+
+*Acts on:* gaps 5, 6 and 7 in `docs/VERIFICATION.md`.
+
+---
+
+## [P38] Anthropic, *Formalizing Fermat's Last Theorem* — **unverified**
+
+> [anthropic.com/research/formalizing-fermats-last-theorem](https://www.anthropic.com/research/formalizing-fermats-last-theorem)
+> and the accompanying PDF. Both blocked by this environment's egress policy;
+> Nature's coverage and Buzzard's post were blocked too.
+
+Everything attributed to the post — 11 days, ~6 billion output tokens, "largely
+autonomously", human input limited to priority, the DAG / statement-proof
+separation / natural-language index as the three coordination mechanisms — is
+taken from search-engine summaries of it and of its coverage. The figures that
+overlap [P36] agree with [P36]; the rest should be checked against the post
+before being quoted further.
+
+---
+
+## [P39] Anthropic engineering, harness design — **partial**
+
+> *Effective harnesses for long-running agents* (Nov 2025) and *Harness design
+> for long-running application development* (Mar 2026), anthropic.com. Blocked;
+> summarised from secondary coverage.
+
+Carried: an initializer/coding-agent split with a feature list carrying
+pass/fail status and a rule to verify end-to-end before marking done; a
+planner/generator/evaluator split on the stated ground that "self-evaluation
+by the same agent that generated the output is unreliable"; and that the
+harness was **simplified** on a newer model with no loss of quality.
+
+*Acts on:* "What not to copy" in `docs/VERIFICATION.md`.
+
+---
+
+## [P42] TDD inside the agent loop — **partial**
+
+> Böckeler, B. *TDD inside the agent loop — theater or actual value?*
+> martinfowler.com, Exploring Gen AI, 10 Aug 2026. Blocked from this
+> environment; figures and quotations are from search-engine extracts and
+> from a GitHub issue that cites the article. An earlier revision of this
+> file attributed the finding to VILA-Lab's *Dive into Claude Code*, which
+> only indexes it.
+
+Recorded: "there was no clearly discernable difference based on TDD workflow
+versus no TDD workflow"; tokens with TDD 8.50× for small tasks, 2.96× for
+medium, 4.89× for large; mutation scores showed no meaningful difference.
+The judge model, reading traces, found non-TDD agents "tended to think through
+the data model, edge cases, contracts, and overall design before writing
+anything", while under TDD they "kept making locally minimal changes around
+the first test", with "early design hardening quickly and agents rarely
+returning for a serious refactor". Recommendations: mutation testing as a
+sensor, and tests written from the spec. The author's own caveat: five
+batches, one judge model, tasks chosen by the author — exploratory, not a
+controlled trial.
+
+*Acts on:* "What not to copy" in `docs/VERIFICATION.md`, and the developer's
+orders at `strict`, which must not become "make the failing tests pass one at
+a time".
+
+---
+
+## [P43] TDD-Agent — **unverified**
+
+> *TDD-Agent: Test-Driven Reasoning for Code Generation.* arXiv:2608.16742.
+> Blocked; from a search-engine extract only: "at its fifth iteration,
+> TDD-Agent exhibits comparable token consumption to baseline agents while
+> consistently achieving superior performance."
+
+Recorded because it appears to contradict [P42] and does not: it measures
+test-first **reasoning** inside a generation on correctness benchmarks, where
+[P42] measures test-first **process** in the tool loop on design-level tasks.
+The distinction is load-bearing in `docs/AGENT-TDD.md` and should be checked
+against the paper before being leaned on further.
+
+*Acts on:* the developer's own test path in `docs/AGENT-TDD.md`, phase 3.
+
+---
+
+## [P40] Reward hacking on tests — **partial**
+
+> ImpossibleBench (lesswrong summary; arXiv paper not fetched). "GPT-5
+> exploiting test cases 76% of the time on the oneoff version of
+> impossible-SWEbench." Also secondary reporting that Anthropic's own
+> training-time countermeasures include hidden tests "to catch solutions that
+> only pass training cases".
+
+The 76% figure is from a summary, not the paper. The direction — frontier
+models overfit a test oracle when the oracle and the specification disagree —
+is consistent across ImpossibleBench, EvilGenie and SpecBench, all of which
+appeared in the same search and none of which were read in full.
+
+*Acts on:* the "TDD is a much weaker instance" table and gap 8 (held-out
+tests) in `docs/VERIFICATION.md`.
+
+---
+
+## [P41] Buzzard's audit of the FLT repository — **unverified**
+
+> Buzzard, K. *FLT: Anthropic has beaten me to it.* Xena Project blog,
+> 4 Sep 2026. Blocked; the quoted check — asking an agent "to flag every line
+> of the repository that was not a definition or a proof", roughly 100 lines
+> returned, a convenience tactic — is from secondary coverage.
+
+*Acts on:* gap 3 in `docs/VERIFICATION.md`, as the hand-run version of an
+enumerated trust base.
+
+## [P44] Model lineup, pricing and effort guidance — **verified**, first-hand
+
+> Anthropic's bundled `claude-api` reference (model table cached 2026-06-24),
+> the Claude Code sub-agents documentation at code.claude.com (fetched
+> 2026-09-15), and `claude --help` on CLI 2.1.272.
+
+Read directly. Model ids and first-party prices per million tokens: Claude
+Fable 5.1 `claude-fable-5-1` $10 in / $50 out; Claude Opus 5 `claude-opus-5`
+$5 / $25; Claude Sonnet 5 `claude-sonnet-5` $2 / $10; Haiku 4.5 $1 / $5.
+Effort levels `low`/`medium`/`high`/`xhigh`/`max`; the reference's own
+guidance: `high` is the default and recommended start, `xhigh` "the best
+setting for most coding and agentic use cases" on Sonnet 5 and the Opus 4.7+
+line, `low` for subagents and simple tasks; on Fable, "lower effort settings —
+including `low` — still perform very well ... often exceeding the `xhigh` or
+even `max` performance of previous models", and at `xhigh`/`max` a long
+deliverable may be drafted in thinking and again in the reply. Fable-specific
+behaviour carried into `agents/director.md`: prompts written for prior models
+are often too prescriptive; on long unattended runs it can end a turn by
+describing the next step; asynchronous sub-agent delegation outperforms
+spawn-and-block.
+
+Sub-agent frontmatter accepts `model:` as an alias (`sonnet`, `opus`,
+`haiku`, `fable`), a full id, or `inherit`, and `effort:` with the five
+levels; `claude --agent <name>` takes the definition's model. `--effort
+<level>` is a CLI flag on 2.1.272, which is what `lib/launcher/base.sh` passes
+for a tier override.
+
+*Acts on:* every `model:`/`effort:` line in `agents/`, `test/agent-lint.sh`,
+and "Who runs what" in `docs/AGENT-TDD.md`.
+
+---
+
 ## [P35] Claude Code substrate — **verified**, first-hand
 
 **Verified 2026-08-12 against `claude 2.1.228`**, re-checked 2026-08-13 against

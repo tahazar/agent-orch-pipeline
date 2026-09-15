@@ -57,6 +57,26 @@ against, whether the role definitions resolved, whether your sessions share a
 permission mode, and whether cross-session messaging can actually reach them.
 Start here whenever something behaves strangely.
 
+## Layers
+
+Not every repository wants all of this. A repo names the layers it uses in
+`.claude/orch.json`; each depends only on the one below, and a command from a
+layer that is off refuses with one line saying so.
+
+| layer | what it is | needs |
+|---|---|---|
+| `floor` | attested evidence, frozen statement and oracle, escape-hatch count, sensors, the packet | git, jq, a test command. Always on |
+| `crew` | tiers, blind roles, reviewers, auditor, refactor pass, read-back, holdout | the `claude` CLI |
+| `upkeep` | a repo-wide census, overnight refactor passes, a morning to keep or discard them | the `claude` CLI |
+| `product` | personas, stories, the walkthrough, the night | not built yet |
+
+```bash
+orch init --profile library    # floor, crew          — the default when there is no file
+orch init --profile service    # floor, crew, upkeep
+orch init --profile product    # everything
+orch layers                    # what this repo has on; orch doctor says what each needs
+```
+
 ## Kickoff — the director drives
 
 For a whole design, one command starts the run:
@@ -136,11 +156,16 @@ The crew writes tests, implements against them, and reviews the diff. Review
 findings are delivered to the developer verbatim, and every test result has to
 come from a real command — see [Evidence](#evidence).
 
-**5. Approve the merge.** Nothing reaches your base branch without this, and it
-binds to the exact commit you approved:
+**5. Approve, then land.** Nothing reaches your base branch without this, and
+it binds to the exact commit you approved. Read the packet first — the
+request, whether the statement and the oracle held, which tests cite each
+requirement, any escape hatch in the diff, the sensors, the evidence, and the
+diff last:
 
 ```bash
+orch packet F001-csv-parser
 orch approve F001-csv-parser --gate human
+orch merge F001-csv-parser --close     # the queue: integration run, then the base advances
 ```
 
 You can run that from any terminal, including one with no session open. If the
@@ -173,16 +198,32 @@ orch feature start F002-typo --request "fix the typo in the README heading" --ti
 
 ## What it does to your git
 
-One branch per feature, `feature/<id>`, created when you start it. Work happens
-there; your base branch is untouched until you approve a squash-merge of the
-exact commit you reviewed.
+One branch and one worktree per feature: `feature/<id>` checked out under
+`.orch/worktrees/<id>/main`, created when you start it. Your checkout is never
+touched. Features run in parallel, each crew in its own tree, and every
+`orch` command that names a feature reads that feature's tree — its HEAD, its
+evidence, its gates — not your checkout's.
 
-Best-of-N (below) puts each candidate in its own git worktree under `.orch/`,
-so parallel attempts cannot see or overwrite each other. Exactly one is merged
-and the rest are archived with their gate results.
+```bash
+orch feature start F002-export --request "..." --after F001-csv-parser
+orch waves                       # the graph: landed, running, ready, blocked
+orch waves next --start          # crew everything whose dependencies have landed
+```
+
+Nothing reaches the base branch except through the merge queue. `orch merge
+<F>` checks the human approval at the feature's HEAD, the frozen statement and
+oracle, and the holdout if there is one; then, under a lock, squash-merges
+onto an integration worktree, runs the build and test commands on the merged
+result, and advances the base only if that is green. Two features that each
+passed alone can fail together, and when they do the base does not move.
+
+Best-of-N, the refactor pass, the holdout run and every upkeep pass each get
+their own worktree under the feature's, so parallel attempts cannot see or
+overwrite each other.
 
 Nothing rebases and nothing force-pushes — those are denied outright. A bad
-merge is reverted, not rewritten.
+merge is reverted, not rewritten. `--here` on `feature start` keeps the old
+one-feature-at-a-time behaviour of checking the branch out in place.
 
 ## When orch overrules you
 
@@ -224,7 +265,7 @@ director            owns the run, the merge, the human gate
 │  │
 │  ├─ test-engineer writes failing tests from requirements alone
 │  ├─ developer     makes them pass; cannot edit tests
-│  └─ code-reviewer fresh context, sees only the diff
+│  └─ code-reviewer ×3 lenses, fresh context, sees only the diff; one lens runs opus
 │
 └─ auditor          adversarial approval — spawned fresh for each gate
 ```
@@ -238,8 +279,17 @@ Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
 | the director cannot write source | `hooks/write-scope.sh` |
 | the developer cannot edit the tests it must satisfy | `hooks/write-scope.sh` |
 | the code-reviewer cannot read the task list | `hooks/task-scope.sh` |
-| the code-reviewer and test-engineer read only the requirements | `hooks/artifact-scope.sh` |
+| the code-reviewer and test-engineer read only the requirements and the contract | `hooks/artifact-scope.sh` |
 | the test-engineer cannot read the developer's tasks | `hooks/task-scope.sh` |
+| only the tech-lead writes the statement, and a frozen statement that moves blocks every gate | `hooks/write-scope.sh`, `hooks/task-guard.sh` |
+| the tests that pass are the tests that failed, however an edit was made | `hooks/task-guard.sh` |
+| no new skip, ignore, disabled lint or changed test config without a finding | `hooks/task-guard.sh` |
+| every requirement id is cited by an oracle test before the red phase completes | `hooks/task-guard.sh` |
+| the contract builds before the oracle is written, and the red phase builds after | `hooks/task-guard.sh` |
+| the read-back session reads the tests and no artifact | `hooks/artifact-scope.sh` |
+| the developer never reads, writes, or runs a command naming the holdout; no merge until it passes | `hooks/artifact-scope.sh`, `hooks/write-scope.sh`, `lib/evidence.sh`, `hooks/gate-guard.sh` |
+| the base advances only through the queue, only when the merged result is green | `lib/merge.sh` |
+| a feature is not crewed until every feature it depends on has landed | `lib/waves.sh` |
 | reviewers can report, never act | `disallowedTools` |
 | candidates cannot escape their worktree | `isolation: worktree` |
 
@@ -256,11 +306,126 @@ produce an evidence row is to run the command:
 orch run --feature F001-csv-parser --label tests -- npm test
 ```
 
-That records the exit code, duration, output hash, and git sha. An approval
-citing a command with no entry is rejected `EVIDENCE_UNATTESTED`; one citing a
-non-zero exit while claiming success is rejected `EVIDENCE_CONTRADICTED`.
-Neither consumes a repair cycle — rejecting a false claim is not the same event
-as failing an honest attempt.
+That records the exit code, duration, output hash, git sha, and whether the
+tree was dirty. An approval citing a command with no entry is rejected
+`EVIDENCE_UNATTESTED`; one citing a non-zero exit while claiming success is
+rejected `EVIDENCE_CONTRADICTED`; one over uncommitted changes is rejected
+`EVIDENCE_DIRTY`. None consumes a repair cycle — rejecting a false claim is
+not the same event as failing an honest attempt.
+
+Three more things are checked by hash rather than by anyone's word, and the
+reasoning is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md):
+
+- **The statement is frozen.** `request.md` at feature start, `requirements.md`
+  and `contract.md` at tier confirm. A frozen file that changes is
+  `STATEMENT_MOVED` at every gate and at the merge, until the tech-lead
+  re-freezes it with a reason — which voids the red phase, because tests
+  written against the old statement do not describe the new one.
+- **The oracle is frozen.** The test tree at the red-phase sha is hashed; the
+  green gate refuses `ORACLE_MOVED` if the tree differs, whether the edit came
+  through Edit, Bash, `orch run`, or another worktree. The developer's own
+  tests go under `test/dev/` and are outside the oracle.
+- **Escape hatches are counted.** `orch axioms` lists every new skip, ignore,
+  disabled lint, or changed test config in the diff against the base. Each is
+  a blocking finding; the gate holds until it is fixed or disputed.
+
+```bash
+orch statement check F001-csv-parser   # exit 6 if a frozen file changed
+orch oracle check F001-csv-parser      # exit 7 if the test tree differs
+orch axioms F001-csv-parser            # exit 1 on any new escape hatch
+orch spec coverage F001-csv-parser     # which oracle tests cite each R-id
+```
+
+Two sensors read numbers the gates cannot compute from git alone. Both are
+report lines until you set a threshold, and gates after:
+
+```bash
+orch run --feature F001-csv-parser --label coverage -- npm test -- --coverage
+orch sensor coverage F001-csv-parser   # of the executable lines the diff touched, how many ran
+orch sensor mutation F001-csv-parser   # from a Stryker or cargo-mutants report, or an attested run's score
+export ORCH_T_DIFF_COV=100 ORCH_T_MUTATION=80   # now they hold the green gate
+```
+
+Line coverage says a line ran. Mutation score says a test would notice if it
+were wrong. A suite with the first and not the second exercises the code and
+asserts nothing about it, which is the suite an agent writes once it has seen
+the implementation.
+
+## Upkeep
+
+The codebase improves while you sleep, on the same terms as everything else:
+nothing is kept on a model's say-so.
+
+```bash
+orch upkeep scan               # the census: escape hatches, tests older than their source,
+                               # churn on size, uncovered lines, TODOs — ranked, no model call
+ORCH_TEST_CMD='npm test' orch upkeep night --top 3
+                               # one refactor pass per file, each on a fresh developer in its
+                               # own worktree, the existing suite frozen as the oracle
+orch upkeep morning            # what held, with the numbers
+orch upkeep keep F903-upkeep-src-parser-py       # merge it into the base
+orch upkeep discard F904-upkeep-src-legacy-py --why "not worth the churn"
+```
+
+A pass lands on a branch, never on your checkout, and only if the refactor
+exit held: tests green and clean at its head, oracle unchanged, no new escape
+hatch, the diff no larger than the file was, any attested metric no worse. A
+nightly re-run does not plan a file twice while its pass is open. An attested
+per-file metric (`orch run --feature _orch --label upkeep-metrics -- <tool
+printing "score path" lines>`) is read into the census when present.
+
+What is not here yet: maintenance driven by production errors and latency. It
+needs telemetry orch cannot assume, and it must read attested aggregates,
+never raw logs.
+
+## The read-back and the holdout
+
+Two more things borrowed from how the FLT proof was checked. Both are optional.
+
+**The read-back** is a natural-language rendering of what each oracle test
+literally asserts, written by a session that is denied the requirements, so
+it cannot read their meaning into the tests. The packet puts it beside the
+requirements; the comparison is yours. It is bound to the oracle it describes
+and shown as stale if the oracle changes.
+
+```bash
+orch readback start F001-csv-parser    # sonnet, low effort, sees only the tests
+```
+
+**The holdout** is the part of the oracle the developer never sees. The
+test-engineer designates it before the red phase; it leaves the tree; the
+developer is denied it by the read guard, the write guard and the executor;
+it runs once, in a clean worktree at the approved sha, and a feature that has
+one does not merge until it has passed. A failing holdout escalates to
+best-of-N rather than opening a repair cycle, because a repair cycle would
+make it visible.
+
+```bash
+orch holdout add F001-csv-parser test/test_edge.py     # test-engineer, before red
+orch holdout run F001-csv-parser -- npm test           # director, at the gate
+```
+
+The boundary is stated in `lib/holdout.sh`: a developer that goes looking with
+`orch run -- find` can find it. It is a discouragement with a ledger row, not
+a secret.
+
+## The refactor pass
+
+Red-green-refactor's third step is where design comes from, and it is the one
+an agent skips: it feels no duplication. So it is a separate pass, once per
+feature, between the green gate and review:
+
+```bash
+orch refactor check F001-csv-parser    # always at strict; at standard on diff size or a metric
+orch refactor start F001-csv-parser    # a fresh developer in its own worktree, design only
+orch refactor finish F001-csv-parser   # kept (fast-forward) or discarded — mechanically
+```
+
+Kept only if the tests are green and clean at the refactor head, the oracle is
+untouched, no escape hatch appeared, the refactor's diff is no larger than the
+feature's was, and every metric attested before is attested after and no
+worse. Otherwise the pre-refactor commit stands and the reason is on the
+ledger. There is no repair loop on a refactor.
 
 ## Watching, and stepping in
 
@@ -337,7 +502,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-501 assertions across eleven suites. No Claude session, no API key, no network.
+869 assertions across eighteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -361,11 +526,24 @@ lib/
   tier.sh         what you chose        escalate.sh   what the evidence forces
   health.sh       the six signals       evidence.sh   attested execution
   findings.sh     review findings       candidates.sh best-of-N
+  statement.sh    frozen statement, frozen oracle
+  axioms.sh       escape hatches        spec.sh       requirement coverage
+  sensors.sh      diff coverage, mutation score
+  refactor.sh     the refactor pass: trigger, invariant, exit
+  packet.sh       the approval packet: statement first, diff last
+  readback.sh     what the tests literally assert, written blind
+  holdout.sh      the part of the oracle the developer never sees
+  layers.sh       which layers a repository has on
+  upkeep.sh       the census, the night, the morning
+  merge.sh        the merge queue: lock, integration run, advance
+  waves.sh        the feature dependency graph
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
-hooks/            the six enforcement hooks
+hooks/            the seven enforcement hooks
 test/             run-all.sh
 docs/PROVENANCE.md  every cited result, with its verification status
+docs/VERIFICATION.md what the FLT formalization teaches this pipeline, and the gaps it exposes
+docs/AGENT-TDD.md   TDD taken apart and rebuilt for an agent; what strict should become
 ```
 
 State lives in three places: the **shared task list** (coordination),

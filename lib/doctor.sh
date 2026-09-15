@@ -47,6 +47,19 @@ doctor_run() {
     return 1
   fi
 
+  # --- layers -------------------------------------------------------------
+  . "$ORCH_HOME/lib/layers.sh"
+  printf 'layers (%s):\n' "$([ -r "$(layers_path)" ] && printf '%s' "$(layers_path)" || printf 'default, no .claude/orch.json')"
+  for l in $ORCH_LAYERS_ALL; do
+    if layer_enabled "$l"; then
+      gap="$(layers_prereq "$l")"
+      if [ -z "$gap" ]; then _d_ok "$l on"; else _d_warn "$l on, but needs $gap"; fi
+    else
+      printf '  off   %s\n' "$l"
+    fi
+  done
+  printf '\n'
+
   # --- toolchain ----------------------------------------------------------
   printf 'toolchain:\n'
   for c in git jq; do

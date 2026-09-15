@@ -172,9 +172,9 @@ findings_reviewer_yield() {  # findings_reviewer_yield <feature|--all>
   local feature="$1" root
   root="$(orch_repo_root)/docs/features"
   { if [ "$feature" = "--all" ]; then
-      find "$root" -name findings.jsonl -type f 2>/dev/null | sort | while IFS= read -r p; do cat "$p"; done
+      for f in $(orch_features_list); do cat "$(orch_feature_dir "$f")/findings.jsonl" 2>/dev/null; done
     else
-      cat "$root/$feature/findings.jsonl" 2>/dev/null
+      cat "$(orch_feature_dir "$feature")/findings.jsonl" 2>/dev/null
     fi
   } | jq -s -c '
     [.[] | select(type=="object")] | group_by(.id) | map(reduce .[] as $r ({}; . * $r)) as $f

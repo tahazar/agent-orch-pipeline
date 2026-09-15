@@ -47,6 +47,7 @@ done
 # --- two sessions share one list ------------------------------------------
 printf '\nshared task list:\n'
 "$ORCH" feature start F001-alpha --request "test fixture" >/dev/null 2>&1
+enter_feature F001-alpha >/dev/null 2>&1 || true
 "$ORCH" approve F001-alpha --gate plan-approved >/dev/null 2>&1
 # A second "session" is a second process with the same task-list id and a
 # different session id. If sharing works, it sees the first one's gate.

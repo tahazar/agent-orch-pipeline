@@ -71,8 +71,9 @@ launcher_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # The command a session runs. Single-quoted for the shell it will be pasted or
 # sent into, so a repo path with a space does not silently split.
 #
-# ORCH_EFFORT, when set, becomes --effort; ORCH_PROMPT, when set, becomes the
-# session's opening message. Env vars rather than parameters because the
+# ORCH_EFFORT, when set, becomes --effort; ORCH_MODEL, when set, becomes
+# --model (one review lens runs opus; see lib/tier.sh); ORCH_PROMPT, when set,
+# becomes the session's opening message. Env vars rather than parameters because the
 # callers that know them (team start reading the tier, audit pinning xhigh,
 # spawn building marching orders) are two layers above the three launcher
 # implementations, and threading strings through every signature is how a seam
@@ -83,8 +84,9 @@ launcher_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # is what turned the first real run into the human doing every role's job by
 # hand. A spawned agent must wake up already told where its work is.
 launcher_claude_cmd() {  # launcher_claude_cmd <role> <name>
-  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s%s" \
+  printf "claude --agent %s -n %s --permission-mode %s --settings '%s'%s%s%s" \
     "$1" "$2" "$ORCH_PERMISSION_MODE" "$(launcher_role_settings "$1")" \
+    "${ORCH_MODEL:+ --model $ORCH_MODEL}" \
     "${ORCH_EFFORT:+ --effort $ORCH_EFFORT}" \
     "${ORCH_PROMPT:+ $(launcher_shq "$ORCH_PROMPT")}"
 }
@@ -99,19 +101,19 @@ launcher_orders() {  # launcher_orders <role> [feature] [gate]
     director)
       if [ -n "$f" ]; then
         printf 'You are the director. Feature %s is underway — read docs/features/%s/ and the ledger, then drive it per your role. Begin now.' "$f" "$f"
-      elif [ -r "${ORCH_REPO:-.}/docs/features/_orch/request.md" ]; then
-        printf 'You are the director. Read docs/features/_orch/request.md — the run request. Decompose it into features (F00N-slug each, smallest shippable units, serial by default), record the decomposition with `orch decision record`, then drive each feature per your role: `orch feature start` with a per-feature --request, `orch spawn tech-lead`, tier confirmation by the human, `orch team start --feature`, gates via `orch audit`, merge only through the human gate. Begin now.'
+      elif [ -r "$(orch_feature_dir _orch)/request.md" ]; then
+        printf 'You are the director. Read docs/features/_orch/request.md — the run request. Decompose it into a graph of features (F00N-slug each, smallest shippable units, each declaring what it depends on), record the decomposition with `orch decision record`, start every feature with `orch feature start --request ... --after ...`, then drive per your role: crew every ready feature in parallel (`orch spawn tech-lead`, the human'"'"'s `orch tier confirm`, `orch team start --feature`), gates via `orch audit`, the human'"'"'s `orch approve`, land through `orch merge`, then `orch waves next --start`. Begin now.'
       else
         printf 'You are the director. No run request is on record yet — the human starts features with `orch feature start`. When one exists, drive it per your role; check `orch team status` and the shared task list now, then stand by.'
       fi ;;
     tech-lead)
-      printf 'You are the tech-lead for %s. Begin now: read docs/features/%s/request.md, produce requirements.md, design.md and tasks.md per your role, then run `orch tier recommend %s <quick|standard|strict> --why "..."` so the human can confirm.' "$f" "$f" "$f" ;;
+      printf 'You are the tech-lead for %s. Begin now: read docs/features/%s/request.md, produce requirements.md (each requirement on its own line with an id: R1, R2, ...), contract.md (the public interface: signatures, types, docstrings — what the tests and the implementation both build against), design.md and tasks.md per your role, then run `orch tier recommend %s <quick|standard|strict> --why "..."` so the human can confirm. The statement is frozen by hash at confirmation.' "$f" "$f" "$f" ;;
     developer)
-      printf 'You are the developer for %s. Begin now: read docs/features/%s/requirements.md and tasks.md, claim your tasks, implement, and attest every result with `orch run --feature %s --label <label> -- <cmd>` — unattested claims are rejected.' "$f" "$f" "$f" ;;
+      printf 'You are the developer for %s. Begin now: read docs/features/%s/requirements.md, contract.md and the ENTIRE test suite, then design the implementation and write it — the suite is a specification, not a to-do list; do not make it pass one test at a time. Your own tests go under test/dev/; the oracle is not yours to edit. Attest every result with `orch run --feature %s --label <label> -- <cmd>` — unattested claims are rejected.' "$f" "$f" "$f" ;;
     test-engineer)
-      printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and write failing tests from it alone, then attest the red phase with `orch run --feature %s --label tests --claim fail`.' "$f" "$f" "$f" ;;
+      printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and contract.md and write failing tests from them alone, one or more per requirement id, citing the id in each test name or a comment. Commit them, then attest the red phase with `orch run --feature %s --label tests -- <command>` — it must exit non-zero, over a committed tree.' "$f" "$f" "$f" ;;
     code-reviewer)
-      printf 'You are a code-reviewer for %s. Begin now: run `orch review scope %s` for your packet, review the diff through your assigned lens, and emit findings with `orch findings add`. You change nothing.' "$f" "$f" ;;
+      printf 'You are a code-reviewer for %s, lens `%s`. Begin now: run `orch review scope %s` for your packet, review the diff through that lens only, and emit findings with `orch findings add --raised-by %s`. You change nothing.' "$f" "${ORCH_LENS:-correctness}" "$f" "${ORCH_LENS:-correctness}" ;;
     auditor)
       printf 'You are the auditor for %s, gate `%s`. Begin now: read the ledger and artifacts under docs/features/%s/, verify every claim against attested evidence, then set the gate or raise findings. You exist for this gate only.' "$f" "${g:-work}" "$f" ;;
     *)
@@ -125,6 +127,10 @@ launcher_env() {  # launcher_env <role> [feature] [extra KEY=VALUE...]
   local role="$1" feature="${2:-}"; shift 2 2>/dev/null || shift $#
   printf 'ORCH_ROLE=%s\n' "$role"
   [ -n "$feature" ] && printf 'ORCH_FEATURE=%s\n' "$feature"
+  # A reviewer's lens is part of its identity, not its orders: `orch findings
+  # yield` groups by it, and a recycled reviewer must come back as the same
+  # lens or the yield numbers describe nobody.
+  [ -n "${ORCH_LENS:-}" ] && printf 'ORCH_LENS=%s\n' "$ORCH_LENS"
   printf 'ORCH_HOME=%s\n' "$ORCH_HOME"
   printf 'CLAUDE_PROJECT_DIR=%s\n' "${ORCH_REPO:-$(orch_repo_root)}"
   # Propagated, not queried. Which task list a team shares is the team's
@@ -180,10 +186,14 @@ launcher_spawn() {
       # The print launcher starts nothing, so recording a spawn would put a
       # session in the ledger that does not exist — and `orch report` would
       # then attribute a feature's cost to an agent nobody ever ran.
+      # Lens and model are recorded so `team recycle` can rebuild the
+      # session as the same reviewer on the same model, from any terminal.
       if [ "$ORCH_LAUNCHER" = "print" ]; then
-        ledger_append agent.printed role "$role" name "$name" cwd "$cwd"
+        ledger_append agent.printed role "$role" name "$name" cwd "$cwd" \
+          lens "${ORCH_LENS:-}" model "${ORCH_MODEL:-}"
       else
-        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd"
+        ledger_append agent.spawned role "$role" name "$name" launcher "$ORCH_LAUNCHER" cwd "$cwd" \
+          lens "${ORCH_LENS:-}" model "${ORCH_MODEL:-}"
       fi
       return 0
       ;;

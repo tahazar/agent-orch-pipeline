@@ -31,6 +31,28 @@ ORCH_TIER_SOURCED=1
 
 ORCH_TIERS="quick standard strict"
 
+# The review ensemble. The union result behind it [P8] holds only while the
+# lenses are independent, and a different model is the cheapest independence
+# available: the ensemble is meant to be (model × lens) diverse, and until now
+# every lens ran the same model. One lens runs opus; the rest run the role's
+# frontmatter model. Empty ORCH_OPUS_LENS puts every lens on the same model,
+# and `orch findings yield` is how you find out whether the opus lens earns its
+# price — a lens with ~0% unique finds over ten features is deleted, whatever
+# it runs on.
+: "${ORCH_REVIEW_LENSES:=correctness failure-modes reproduction}"
+# Unset means the default; empty means "no opus lens". `:=` cannot tell those
+# apart, so the default is applied only when the variable does not exist.
+[ -n "${ORCH_OPUS_LENS+x}" ] || ORCH_OPUS_LENS=correctness
+
+tier_lenses() { printf '%s' "$ORCH_REVIEW_LENSES"; }
+
+# tier_lens_model <lens> -> the model override for that lens, or empty for the
+# role's own.
+tier_lens_model() {
+  [ -n "$ORCH_OPUS_LENS" ] && [ "$1" = "$ORCH_OPUS_LENS" ] && printf 'opus'
+  return 0
+}
+
 # tier_rung <name> -> the rung a tier corresponds to, or empty if not a tier.
 tier_rung() {
   case "$1" in
@@ -55,7 +77,11 @@ tier_crew() {  # tier_crew <rung>
   esac
 }
 
-# The reasoning effort a rung's crew runs at. Empty means the model default.
+# The reasoning effort a rung's crew runs at. Empty means the role's own
+# default — each agents/<role>.md declares `effort:` in its frontmatter next to
+# `model:`, so the two are read together, and `test/agent-lint.sh` requires it.
+# What this function returns is the tier's OVERRIDE, passed as --effort, and it
+# only ever lowers.
 #
 # Only quick is lowered. The v1 session spent 2.45M tokens having an opus
 # prover write tests, and the post-mortem's conclusion was not "think less
@@ -147,6 +173,13 @@ Pass one explicitly:  orch tier confirm $feature --tier <$(printf '%s' "$ORCH_TI
 
   ORCH_LEDGER_FEATURE="$feature" ledger_append tier.confirmed \
     tier "$tier" rung:raw "$rung" recommended "$rec" by "$(orch_actor)"
+
+  # The crew is sized here, so this is the last moment the statement can
+  # change without anyone having built against it. Freeze whatever exists —
+  # requirements.md and contract.md if the tech-lead has written them,
+  # request.md regardless.
+  . "$ORCH_HOME/lib/statement.sh"
+  statement_freeze "$feature" "tier confirmed" >/dev/null 2>&1 || true
 
   if [ "$rung" -gt "$cur" ]; then
     escalate_to "$feature" "$rung" "tier=$tier confirmed by a human"

@@ -34,6 +34,7 @@ out="$(ORCH_LAUNCHER=nonesuch "$ORCH" team status 2>&1)"; rc=$?
 
 printf '\nno crew before a confirmed tier:\n'
 "$ORCH" feature start F030-spawn --request "test fixture" >/dev/null 2>&1
+enter_feature F030-spawn >/dev/null 2>&1 || true
 out="$("$ORCH" team start --feature F030-spawn 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "a crew cannot be spawned before a tier is confirmed"
 contains "$out" "no confirmed tier" "and the refusal says what is missing"
@@ -48,9 +49,36 @@ not_contains "$out" "test-engineer" "and not a test-engineer"
 
 printf '\nthe crew grows with the rung:\n'
 "$ORCH" feature start F031-strict --request "test fixture" --tier strict >/dev/null 2>&1
+enter_feature F031-strict >/dev/null 2>&1 || true
 out="$("$ORCH" team start --feature F031-strict 2>&1)"
 contains "$out" "test-engineer" "strict adds the test-engineer"
 contains "$out" "code-reviewer" "and the code-reviewer"
+
+printf '\nthe review ensemble is spawned, not described:\n'
+n_lens="$(printf '%s' "$out" | grep -c 'ORCH_LENS=')"
+[ "$n_lens" = "3" ]; chk $? "three lenses, three sessions (got $n_lens)"
+for l in correctness failure-modes reproduction; do
+  contains "$out" "code-reviewer-$l" "a session named for the $l lens"
+  contains "$out" "lens \`$l\`" "whose orders name that lens"
+done
+n_opus="$(printf '%s' "$out" | grep -c -- '--model opus')"
+[ "$n_opus" = "1" ]; chk $? "exactly one lens runs on opus (got $n_opus) — the model axis of the ensemble"
+printf '%s' "$out" | grep -- '--model opus' | grep -q 'code-reviewer-correctness'
+chk $? "and it is the correctness lens by default"
+not_contains "$(printf '%s' "$out" | grep 'agent developer')" "--model" "the developer keeps its frontmatter model"
+out="$(ORCH_OPUS_LENS= "$ORCH" team start --feature F031-strict 2>&1)"
+not_contains "$out" "--model" "an empty ORCH_OPUS_LENS puts every lens on the role's own model"
+out="$(ORCH_REVIEW_LENSES=correctness "$ORCH" team start --feature F031-strict 2>&1)"
+[ "$(printf '%s' "$out" | grep -c 'ORCH_LENS=')" = "1" ]; chk $? "the lens list is overridable"
+
+printf '\na reviewer spawned by hand gets a lens too:\n'
+out="$("$ORCH" spawn code-reviewer --feature F031-strict --lens reproduction 2>&1)"
+contains "$out" "ORCH_LENS=reproduction" "the lens asked for"
+contains "$out" "code-reviewer-reproduction" "in the session name"
+not_contains "$out" "--model" "and no model override, since it is not the opus lens"
+out="$("$ORCH" spawn code-reviewer --feature F031-strict 2>&1)"
+contains "$out" "ORCH_LENS=correctness" "with no --lens, the first lens"
+contains "$out" "--model opus" "which is the opus lens"
 
 printf '\nevery session in a team shares its coordination environment:\n'
 out="$("$ORCH" team start --feature F031-strict 2>&1)"
@@ -100,8 +128,17 @@ out="$("$ORCH" team recycle nonesuch 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "recycling a session orch never started is refused"
 contains "$out" "orch did not start it" "with the reason"
 
+printf '\\na recycled reviewer is the same reviewer:\\n'
+"$ORCH" team start --feature F031-strict >/dev/null 2>&1
+out="$("$ORCH" team recycle code-reviewer-correctness 2>&1)"
+contains "$out" "ORCH_LENS=correctness" "a recycled reviewer comes back as the same lens"
+contains "$out" "--model opus" "on the same model — the yield report must keep describing the same reviewer"
+out="$("$ORCH" team recycle code-reviewer-reproduction 2>&1)"
+contains "$out" "ORCH_LENS=reproduction" "and a non-opus lens comes back as itself"
+not_contains "$out" "--model" "without inheriting the opus override"
+
 printf '\na launcher that starts nothing does not claim it did:\n'
-LEDGER="$ORCH_REPO/docs/features/_orch/ledger.jsonl"
+LEDGER="${MAIN:-$ORCH_REPO}/docs/features/_orch/ledger.jsonl"
 jq -e -s 'any(.[]; .event=="agent.printed")' "$LEDGER" >/dev/null
 chk $? "print records agent.printed"
 jq -e -s 'all(.[]; .event != "agent.spawned")' "$LEDGER" >/dev/null
@@ -141,14 +178,14 @@ printf '\nkickoff — one command, and the director drives:\n'
 out="$("$ORCH" kickoff 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "kickoff without a request is refused"
 out="$("$ORCH" kickoff --request "Build a CSV importer with three views" 2>&1)"
-[ -r "$ORCH_REPO/docs/features/_orch/request.md" ]
+[ -r "${MAIN:-$ORCH_REPO}/docs/features/_orch/request.md" ]
 chk $? "the run request is frozen at docs/features/_orch/request.md"
-contains "$out" "Decompose it into features" "the director wakes with decompose-and-drive orders"
+contains "$out" "Decompose it into a graph of features" "the director wakes with decompose-and-drive orders"
 contains "$out" "orch tier confirm" "and the human is told exactly which gates are theirs"
 contains "$out" "orch approve" "including the merge"
-grep -q "Build a CSV importer" "$ORCH_REPO/docs/features/_orch/request.md"
+grep -q "Build a CSV importer" "${MAIN:-$ORCH_REPO}/docs/features/_orch/request.md"
 chk $? "and the frozen request is the one that was given"
-jq -e -s 'any(.[]; .event=="kickoff")' "$ORCH_REPO/docs/features/_orch/ledger.jsonl" >/dev/null
+jq -e -s 'any(.[]; .event=="kickoff")' "${MAIN:-$ORCH_REPO}/docs/features/_orch/ledger.jsonl" >/dev/null
 chk $? "kickoff is a ledger event"
 
 # Orders carry human text; an apostrophe must not detonate the command line.

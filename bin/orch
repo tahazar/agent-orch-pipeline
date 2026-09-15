@@ -37,11 +37,12 @@ usage() {
 orch — adaptive orchestration on Claude Code's native coordination primitives.
 
   orch doctor                          check the §1 operational constraints
-  orch init                            print the environment two sessions must share
+  orch init [--profile P]              print the shared environment; write the layers for a profile
+  orch layers                          which layers this repository has on
   orch roster                          live sessions, via `claude agents --json`
 
   orch kickoff --request <file|text>   freeze the run request; the director drives
-  orch feature start <F00N> --request <file|text> [--tier T] [--branch B]
+  orch feature start <F00N> --request <file|text> [--tier T] [--after F,G] [--here]
   orch feature current                 which feature hooks will attribute events to
 
   orch tier recommend <F> <tier> --why WHY   the tech-lead proposes
@@ -61,9 +62,31 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch run --feature F --label L -- CMD…      attested execution
   orch evidence verify --feature F --label L [--claim pass|fail] [--fresh]
 
+  orch statement freeze <F> [--why W]  hash the statement; gates hold the feature to it
+  orch statement check <F>             exit 6 STATEMENT_MOVED if a frozen file changed
+  orch oracle freeze <F> [--sha S]     hash the test tree; the tests that pass must be these
+  orch oracle check <F> [--sha S]      exit 7 ORACLE_MOVED if the test tree differs
+
+  orch sensor coverage <F> [--lcov F]  diff coverage from an lcov report; a ledger reading
+  orch sensor mutation <F> [--from T]  mutation score from stryker, cargo-mutants, or an attested run
+  orch sensor show <F>                 the latest reading of each sensor
+  orch axioms <F> [--base B]           new escape hatches in the diff; exit 1 if any
+  orch spec coverage <F>               which oracle tests cite each requirement id
+
   orch gate read <F> <gate>            gate state, as JSON
   orch gate set  <F> <gate> <met|open> [--sha SHA]
   orch gate check <F> <gate>           exit 0 only if met for the current HEAD
+  orch holdout add <F> <test-path>     hold a test out of the tree; the developer never sees it
+  orch holdout run <F> -- CMD…         run the holdout in a clean worktree at HEAD; a merge gate
+  orch holdout list <F>
+  orch readback start <F>              a blind session: what do the tests literally assert?
+  orch readback record <F> [file|-]    the read-back, bound to the oracle sha
+  orch readback files <F>              the oracle files the read-back may read
+  orch merge <F> [--close]             land F on the base: gates, lock, integration run, advance
+  orch merge status                    approved and waiting, landed, rejected
+  orch waves                           the feature graph and each feature's state
+  orch waves next [--start]            ready features: refresh from base; start their crews
+  orch packet <F>                      what to read before approving: statement first, diff last
   orch approve <F> --gate <gate>       human approval, from any terminal
 
   orch health signals <F>              which degradation signals are firing
@@ -78,6 +101,15 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch findings yield [F|--all]        per-reviewer unique-find rate
   orch review scope [F]                a re-review's packet: open findings + the
                                        diff since the last verdict, nothing else
+
+  orch refactor check <F>              should the refactor pass run? (rung, diff size, metrics)
+  orch refactor start <F>              worktree + fresh developer, design only; records the exit numbers
+  orch refactor finish <F>             keep (fast-forward) or discard, mechanically
+
+  orch upkeep scan [--top N]           repo-wide census: hatches, stale tests, churn, uncovered — ranked
+  orch upkeep plan [--top N]           the top files become upkeep features
+  orch upkeep night [--top N]          a refactor pass per file, in parallel, landing on branches
+  orch upkeep morning                  what held; then  orch upkeep keep|discard <F>
 
   orch candidates start <F> [-n N]     rung 3: N isolated worktrees
   orch candidates collect <F> [gates…] gather each candidate's own attestations
@@ -138,6 +170,22 @@ case "$cmd" in ''|-h|--help|help) usage; exit 0 ;; esac
 
 require_cmd git
 require_cmd jq
+
+# Which feature this invocation is about, from `--feature F` or a positional
+# feature id, so the repo resolves to that feature's worktree before any
+# command runs. A crew session has ORCH_FEATURE from its launcher already;
+# this is for the human's and the director's terminal in the main checkout.
+_prev=''
+{
+  for _a in "$@"; do
+    if [ "$_prev" = "--feature" ] || orch_valid_feature "$_a" 2>/dev/null; then
+      case "$_a" in F[0-9][0-9][0-9]*) export ORCH_FEATURE="$_a"; break ;; esac
+    fi
+    case "$_a" in --feature=F*) export ORCH_FEATURE="${_a#--feature=}"; break ;; esac
+    _prev="$_a"
+  done
+  unset _prev _a
+}
 orch_require_repo
 
 case "$cmd" in
@@ -147,8 +195,21 @@ case "$cmd" in
     doctor_run
     ;;
 
+  layers)
+    . "$ORCH_HOME/lib/layers.sh"
+    printf 'layers on: %s\n' "$(layers_enabled)"
+    [ -r "$(layers_path)" ] && printf 'from %s\n' "$(layers_path)" || printf '(no %s — the default: floor and crew)\n' "$(layers_path)"
+    ;;
+
   init)
     . "$ORCH_HOME/lib/substrate/base.sh"
+    . "$ORCH_HOME/lib/layers.sh"
+    prof="$(opt profile '' "$@")"
+    if [ -n "$prof" ]; then
+      ls="$(layers_profile "$prof")" || die "init: --profile must be library, service, or product (got '$prof')"
+      layers_write $ls
+      printf 'wrote %s: layers %s\n\n' "$(layers_path)" "$ls"
+    fi
     cat <<EOF
 Every session in an orch team must share these, or they coordinate with nobody:
 
@@ -208,41 +269,66 @@ be compared against what you actually said.
   orch feature start $f --request docs/specs/thing.md
   orch feature start $f --request \"Parse the CSV export, tolerate BOM headers\""
 
-        mkdir -p "$(orch_feature_dir "$f")"
+        after="$(opt after '' "$@")"
+        for dep in $(printf '%s' "$after" | tr ',' ' '); do
+          orch_valid_feature "$dep" || die "feature start: --after names '$dep', which is not a feature id"
+          [ "$dep" != "$f" ] || die "feature start: a feature cannot depend on itself"
+        done
         orch_set_current_feature "$f"
         base="$(opt base "$(escalate_base_branch)" "$@")"
-        printf '%s\n' "$base" > "$ORCH_REPO/.orch/base-branch"
+        printf '%s\n' "$base" > "$(orch_state_dir)/base-branch"
+        [ -r "$req" ] && reqsrc="$req" || reqsrc="(inline)"
 
-        # Freeze the request. A file is copied rather than referenced: the
-        # point of freezing is that editing your spec mid-run cannot silently
-        # change what the crew was asked for.
-        if [ -r "$req" ]; then
-          cp "$req" "$(orch_feature_dir "$f")/request.md"
-          reqsrc="$req"
-        else
-          printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"
-          reqsrc="(inline)"
-        fi
-
-        # A branch per feature, so the merge the director is told to make has
-        # something to merge, and so an abandoned feature is one branch to
-        # delete rather than a working tree to unpick.
+        # A branch per feature, in a worktree per feature. Features run in
+        # parallel, so nothing checks out in the main checkout: the feature's
+        # crew works in .orch/worktrees/<F>/main and the human's checkout is
+        # left alone. --here keeps the old behaviour (check out in place) for
+        # a repo that wants one feature at a time.
         # feature/<F>, not orch/<F>: best-of-N candidates take refs under
         # orch/<F>/cN, and git cannot hold both a branch named orch/<F> and a
         # directory of refs beneath it.
         br="$(opt branch "feature/$f" "$@")"
-        if [ "$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
-          note "already on $br"
-        elif git -C "$ORCH_REPO" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
-          git -C "$ORCH_REPO" checkout -q "$br" || die "feature start: could not switch to $br"
+        main="$(orch_main_repo)"
+        wt="$main/.orch/worktrees/$f/main"
+        if has_flag here "$@"; then
+          if [ "$(git -C "$main" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
+            note "already on $br"
+          elif git -C "$main" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+            git -C "$main" checkout -q "$br" || die "feature start: could not switch to $br"
+          else
+            git -C "$main" checkout -q -b "$br" || die "feature start: could not create $br"
+          fi
+        elif [ -d "$wt" ]; then
+          note "worktree for $f already exists at $wt"
         else
-          git -C "$ORCH_REPO" checkout -q -b "$br" || die "feature start: could not create $br"
+          mkdir -p "$(dirname "$wt")"
+          git -C "$main" worktree prune >/dev/null 2>&1
+          if git -C "$main" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+            git -C "$main" worktree add -f -q "$wt" "$br" || die "feature start: could not add worktree for $br"
+          else
+            git -C "$main" worktree add -q -b "$br" "$wt" "$base" 2>/dev/null \
+              || git -C "$main" worktree add -q -b "$br" "$wt" HEAD \
+              || die "feature start: could not create $br"
+          fi
         fi
+        # The feature's artifacts live in its tree from here on. Freeze the
+        # request there: a file is copied rather than referenced, because the
+        # point of freezing is that editing your spec mid-run cannot silently
+        # change what the crew was asked for.
+        export ORCH_FEATURE="$f"; ORCH_REPO="$(orch_repo_root)"; export ORCH_REPO
+        mkdir -p "$(orch_feature_dir "$f")"
+        if [ -r "$req" ]; then cp "$req" "$(orch_feature_dir "$f")/request.md"
+        else printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"; fi
 
         ORCH_LEDGER_FEATURE="$f" ledger_append feature.started \
-          base "$base" branch "$br" request "$reqsrc" rung:raw 0
-        printf '%s started on branch %s (base %s).\n' "$f" "$br" "$base"
+          base "$base" branch "$br" request "$reqsrc" rung:raw 0 after "$after"
+        printf '%s started on branch %s (base %s)%s.\n' "$f" "$br" "$base" "$([ -d "$wt" ] && printf ' in %s' "$wt")"
+        # "Frozen" is a hash in the ledger, not a promise: every gate
+        # recomputes it, and a request.md edited afterwards is STATEMENT_MOVED.
+        . "$ORCH_HOME/lib/statement.sh"
+        statement_freeze "$f" "feature start" >/dev/null
         printf 'request frozen at %s\n' "$(orch_feature_dir "$f")/request.md"
+        [ -z "$after" ] || printf 'after %s — its crew starts when they have landed:  orch waves next\n' "$after"
         if [ -n "$t" ]; then
           tier_confirm "$f" "$t"
         else
@@ -278,10 +364,19 @@ be compared against what you actually said.
     ;;
 
   spawn)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
+    . "$ORCH_HOME/lib/tier.sh"
     role="$(need "${1:-}" 'spawn: needs a role')"; shift 2>/dev/null || true
     f="$(opt feature '' "$@")"
-    name="$(launcher_session_name "$role" "$(opt suffix '' "$@")")"
+    # A reviewer spawned by hand still gets a lens, and the lens's model: the
+    # yield report groups by lens, and a reviewer with none is invisible to it.
+    lens="$(opt lens '' "$@")"
+    if [ "$role" = "code-reviewer" ]; then
+      [ -n "$lens" ] || lens="$(set -- $(tier_lenses); printf '%s' "$1")"
+      export ORCH_LENS="$lens" ORCH_MODEL="${ORCH_MODEL:-$(tier_lens_model "$lens")}"
+    fi
+    name="$(launcher_session_name "$role" "$(opt suffix "${lens:-}" "$@")")"
     # Attributed explicitly. Falling through to orch_current_feature would bill
     # a run-level session to whichever feature happened to be started last.
     ORCH_LEDGER_FEATURE="${f:-_orch}" \
@@ -297,6 +392,7 @@ be compared against what you actually said.
     # request, spawn the director with decompose-and-drive orders, done —
     # every further spawn, gate and merge is the director working its role,
     # and the human is needed exactly where the gates say so.
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     req="$(opt request '' "$@")"
     [ -n "$req" ] || die 'kickoff: --request is required — a run needs to know what it is building.
@@ -331,6 +427,7 @@ be compared against what you actually said.
     # adversarial reviewer is supposed to have, and a session-long auditor
     # slowly becomes a colleague. Everything it needs to know is in the ledger
     # and the artifacts; everything it should not know is in the crew's heads.
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     f="$(need "${1:-}" 'audit: needs a feature')"; shift 2>/dev/null || true
     orch_valid_feature "$f" || die "audit: invalid feature '$f'"
@@ -357,6 +454,7 @@ be compared against what you actually said.
     ;;
 
   team)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     . "$ORCH_HOME/lib/tier.sh"
     . "$ORCH_HOME/lib/substrate/base.sh"
@@ -382,11 +480,28 @@ be compared against what you actually said.
           tier_is_confirmed "$f" || die "team start: $f has no confirmed tier, so there is no crew to size.
   orch tier recommend $f <$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')> --why \"...\"
   orch tier confirm $f"
+          . "$ORCH_HOME/lib/waves.sh"
+          blk="$(waves_blockers "$f")"
+          [ -z "$blk" ] || die "team start: $f waits for $blk to land first (orch waves)"
           rung="$(escalate_rung "$f")"
           crew="$(tier_crew "$rung")"
           [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
           eff="$(tier_effort "$rung")"
           for r in $crew; do
+            if [ "$r" = "code-reviewer" ]; then
+              # The ensemble: one session per lens, named by it, and one lens
+              # on opus. A subshell per spawn so the lens and model reach the
+              # orders, the env and the ledger row without leaking into the
+              # next role's spawn.
+              for lens in $(tier_lenses); do
+                ( export ORCH_LENS="$lens" ORCH_MODEL="$(tier_lens_model "$lens")"
+                  ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
+                    ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
+                    launcher_spawn "$r" "$(launcher_session_name "$r" "$lens")" "$ORCH_REPO" \
+                      $(launcher_env "$r" "$f") ) || true
+              done
+              continue
+            fi
             ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
               ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
               launcher_spawn "$r" "$(launcher_session_name "$r")" "$ORCH_REPO" \
@@ -442,6 +557,12 @@ be compared against what you actually said.
         role="$(printf '%s' "$row" | jq -r '.role')"
         rf="$(printf '%s' "$row" | jq -r '.feature')"
         [ "$rf" = "_orch" ] && rf=''
+        # Same lens, same model: a reviewer recycled onto a different lens
+        # would carry its findings' raised_by with it and corrupt the yield.
+        lens="$(printf '%s' "$row" | jq -r '.lens // ""')"
+        model="$(printf '%s' "$row" | jq -r '.model // ""')"
+        [ -n "$lens" ] && export ORCH_LENS="$lens"
+        [ -n "$model" ] && export ORCH_MODEL="$model"
         launcher_kill "$n" || true
         eff=''
         if [ -n "$rf" ]; then
@@ -516,6 +637,90 @@ be compared against what you actually said.
     esac
     ;;
 
+  sensor)
+    . "$ORCH_HOME/lib/sensors.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'sensor: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      coverage)
+        r="$(sensor_coverage "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"diff coverage: \(.pct // "—")% of \(.lines) changed executable lines at \(.sha[0:12])"
+          + (if (.unmeasured|length) > 0 then "\n  unmeasured (no test imported them): " + (.unmeasured|join(", ")) else "" end)
+          + (if (.uncovered|length) > 0 then "\n  uncovered: " + (.uncovered|join(", ")) else "" end)'
+        ;;
+      mutation)
+        r="$(sensor_mutation "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"mutation score: \(.pct // "—")% (\(.from), scope \(.scope)" + (if .total != null then ", \(.killed)/\(.total) killed" else "" end) + ") at \(.sha[0:12])"'
+        ;;
+      show)
+        for s in diff_coverage mutation; do
+          r="$(sensor_latest "$f" "$s")"
+          [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: .event, at_sha, pct, ts}' || printf '{"sensor":"sensor.%s","reading":null}\n' "$s"
+        done
+        ;;
+      *) die "sensor: expected coverage, mutation, or show" ;;
+    esac
+    ;;
+
+  axioms)
+    . "$ORCH_HOME/lib/axioms.sh"
+    . "$ORCH_HOME/lib/escalate.sh"
+    f="$(need "${1:-}" 'axioms: needs a feature')"; shift 2>/dev/null || true
+    base="$(opt base "$(git -C "$ORCH_REPO" merge-base "$(escalate_base_branch)" HEAD 2>/dev/null || escalate_base_branch)" "$@")"
+    found="$(axioms_scan "$base" HEAD)"
+    if [ "$(printf '%s' "$found" | jq 'length')" = "0" ]; then
+      printf 'no new escape hatches in %s (against %s).\n' "$f" "$(printf '%s' "$base" | cut -c1-12)"
+      exit 0
+    fi
+    printf '%s' "$found" | jq -r '.[] | if .kind=="config"
+      then "  CONFIG   \(.file)"
+      else "  \(.file):\(.line)  \(.pattern)  (\(.base) -> \(.head))" end'
+    printf '\nEach is a blocking finding at the tests-pass gate. Fix it, or dispute it with a reason.\n' >&2
+    exit 1
+    ;;
+
+  spec)
+    . "$ORCH_HOME/lib/spec.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'spec: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      coverage)
+        cov="$(spec_coverage "$f" "$(opt sha "$(orch_head_sha)" "$@")")"
+        if [ "$(printf '%s' "$cov" | jq 'length')" = "0" ]; then
+          printf 'requirements.md for %s defines no requirement ids (R1, R2, ...), so nothing can cite one.\n' "$f"
+          exit 0
+        fi
+        printf '%s' "$cov" | jq -r '.[] | "  \(.id)  " + (if (.tests|length)==0 then "UNCOVERED" else (.tests | join(", ")) end)'
+        printf '%s' "$cov" | jq -e 'all(.[]; (.tests|length) > 0)' >/dev/null
+        ;;
+      *) die "spec: expected coverage" ;;
+    esac
+    ;;
+
+  statement)
+    . "$ORCH_HOME/lib/statement.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'statement: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      freeze) statement_freeze "$f" "$(opt why '' "$@")" ;;
+      check)  statement_check "$f" && printf 'statement for %s is as frozen.\n' "$f" ;;
+      show)   statement_frozen "$f" | jq '.' ;;
+      *) die "statement: expected freeze, check, or show" ;;
+    esac
+    ;;
+
+  oracle)
+    . "$ORCH_HOME/lib/statement.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'oracle: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      freeze) oracle_freeze "$f" "$(opt sha "$(orch_head_sha)" "$@")" ;;
+      check)  oracle_check "$f" "$(opt sha "$(orch_head_sha)" "$@")" && printf 'oracle for %s is as frozen.\n' "$f" ;;
+      show)   oracle_frozen "$f" | jq '.' ;;
+      *) die "oracle: expected freeze, check, or show" ;;
+    esac
+    ;;
+
   gate)
     . "$ORCH_HOME/lib/substrate/base.sh"
     sub="${1:-}"; shift 2>/dev/null || true
@@ -551,12 +756,73 @@ be compared against what you actually said.
     esac
     ;;
 
+  holdout)
+    . "$ORCH_HOME/lib/holdout.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'holdout: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      add)  holdout_add "$f" "$(need "${1:-}" 'holdout add: needs a test path')" ;;
+      list) holdout_list "$f" ;;
+      run)  holdout_run "$f" "$@" ;;
+      *) die "holdout: expected add, list, or run" ;;
+    esac
+    ;;
+
+  readback)
+    . "$ORCH_HOME/lib/readback.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'readback: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        # A code-reviewer with the readback lens: no write tools, sees the
+        # oracle files and nothing else, and records through orch. Sonnet at
+        # low effort — this is translation, not judgement.
+        . "$ORCH_HOME/lib/launcher/base.sh"
+        ( export ORCH_LENS=readback
+          ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT=low \
+            ORCH_PROMPT="You are the read-back for $f. Run \`orch readback files $f\` and read ONLY those test files — requirements.md, request.md and contract.md are denied to you on purpose, and you must not infer what the tests are supposed to mean. For each test, write one plain-English paragraph stating exactly what would have to be true for it to pass: every input, every asserted output, every boundary, and what would satisfy it vacuously (an empty input, a caught exception, an assertion that cannot fail). Omitting a condition is the worst failure. Then record it: \`orch readback record $f -\` with the text on stdin. You change nothing." \
+            launcher_spawn code-reviewer "$(launcher_session_name code-reviewer readback)" "$ORCH_REPO" \
+              $(launcher_env code-reviewer "$f") )
+        ;;
+      record) readback_record "$f" "${1:--}" ;;
+      files)  readback_files "$f" ;;
+      show)   cat "$(readback_path "$f")" 2>/dev/null || { printf 'no read-back for %s\n' "$f"; exit 1; } ;;
+      status) readback_status "$f"; printf '\n' ;;
+      *) die "readback: expected start, record, files, show, or status" ;;
+    esac
+    ;;
+
+  merge)
+    . "$ORCH_HOME/lib/merge.sh"
+    case "${1:-}" in
+      status|'') merge_status ;;
+      *) f="$1"; shift; merge_land "$f" "$@" ;;
+    esac
+    ;;
+
+  waves)
+    . "$ORCH_HOME/lib/waves.sh"
+    ORCH_ROOT_BIN="$0"; export ORCH_ROOT_BIN
+    case "${1:-}" in
+      next) waves_next "${2:-}" ;;
+      '')   waves_render ;;
+      *) die "waves: expected nothing or next" ;;
+    esac
+    ;;
+
+  packet)
+    . "$ORCH_HOME/lib/packet.sh"
+    packet_render "$(need "${1:-}" 'packet: needs a feature')"
+    ;;
+
   approve)
     . "$ORCH_HOME/lib/substrate/base.sh"
     f="$(need "${1:-}" 'approve: needs a feature')"; shift
     g="$(opt gate human "$@")"
     sha="$(opt sha "$(orch_head_sha)" "$@")"
     substrate_set_gate "$f" "$g" met "$sha"
+    [ "$g" != human ] || [ -n "${ORCH_PACKET_SEEN:-}" ] || \
+      printf 'If you have not read it:  orch packet %s  — the statement and every check, before the diff.\n' "$f" >&2
     printf 'approved: %s gate `%s` at %s\n' "$f" "$g" "$(printf '%s' "$sha" | cut -c1-12)"
     printf 'This is durable and greppable, survives a dead session, and is scoped to that\nsha — move the branch and the approval stops applying.\n'
     ;;
@@ -657,6 +923,45 @@ be compared against what you actually said.
     esac
     ;;
 
+  upkeep)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require upkeep
+    . "$ORCH_HOME/lib/upkeep.sh"
+    ORCH_ROOT_BIN="$0"; export ORCH_ROOT_BIN
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      scan)    upkeep_render "$(upkeep_scan "$@")" ;;
+      plan)    upkeep_plan "$@" ;;
+      night)   upkeep_night "$@" ;;
+      morning) upkeep_morning ;;
+      keep)    upkeep_keep "$(need "${1:-}" 'upkeep keep: needs a feature')" ;;
+      discard) f="$(need "${1:-}" 'upkeep discard: needs a feature')"; shift; upkeep_discard "$f" "$(opt why '' "$@")" ;;
+      *) die "upkeep: expected scan, plan, night, morning, keep, or discard" ;;
+    esac
+    ;;
+
+  refactor)
+    . "$ORCH_HOME/lib/refactor.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'refactor: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      check)  refactor_should_run "$f" ;;
+      start)
+        refactor_start "$f"
+        # A fresh context, on purpose: the developer that wrote the code is
+        # anchored to why it wrote it that way. Same role, new session, cwd
+        # in the worktree so the platform's worktree isolation applies.
+        . "$ORCH_HOME/lib/launcher/base.sh"
+        . "$ORCH_HOME/lib/tier.sh"
+        ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$(tier_effort "$(escalate_rung "$f")")" \
+          ORCH_PROMPT="You are the refactor pass for $f — a fresh developer whose only job is design. Begin now: read docs/features/$f/REFACTOR.md in this worktree, then requirements.md, contract.md and the whole suite; improve the code without changing what it does; attest build and tests here with \`orch run\`; commit; then run \`orch refactor finish $f\`. The exit is mechanical and there is no repair loop." \
+          launcher_spawn developer "$(launcher_session_name developer "refactor-$f")" "$(refactor_root "$f")" \
+            $(launcher_env developer "$f") "ORCH_PHASE=refactor" || true
+        ;;
+      finish) refactor_finish "$f" ;;
+      *) die "refactor: expected check, start, or finish" ;;
+    esac
+    ;;
+
   candidates)
     . "$ORCH_HOME/lib/candidates.sh"
     sub="${1:-}"; shift 2>/dev/null || true
@@ -736,7 +1041,7 @@ be compared against what you actually said.
       printf 'sessions:\n'
       substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  pid=\(.pid)  \(.cwd)" end'
       printf '\nfeatures:\n'
-      for f in $(ls "$ORCH_REPO/docs/features" 2>/dev/null); do
+      for f in $(orch_features_list); do
         orch_valid_feature "$f" || continue
         [ "$f" = "_orch" ] && continue
         printf '  %-22s rung %s (%s)  signals: %s\n' "$f" "$(escalate_rung "$f")" \

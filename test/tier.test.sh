@@ -27,8 +27,9 @@ you are asking for" "and says why the crew cannot proceed without it"
 # a solo baseline gets so the comparison is against the same input.
 printf 'spec v1\n' > "$ORCH_REPO/spec.md"
 "$ORCH" feature start F018-frozen --request "$ORCH_REPO/spec.md" >/dev/null 2>&1
+enter_feature F018-frozen >/dev/null 2>&1 || true
 printf 'spec v2 — changed my mind\n' > "$ORCH_REPO/spec.md"
-frozen="$(cat "$ORCH_REPO/docs/features/F018-frozen/request.md")"
+frozen="$(cat "$(fdir F018-frozen)/request.md")"
 [ "$frozen" = "spec v1" ]; chk $? "the request is frozen at start, not followed by reference"
 
 printf '\neach feature gets its own branch:\n'
@@ -44,6 +45,7 @@ git -C "$ORCH_REPO" checkout -q main 2>/dev/null || git -C "$ORCH_REPO" checkout
 
 printf '\na feature starts with no tier and therefore no crew:\n'
 out="$("$ORCH" feature start F020-tier --request "test fixture" 2>&1)"
+enter_feature F020-tier >/dev/null 2>&1 || true
 contains "$out" "No tier yet, so no crew yet" "starting a feature does not choose a tier for you"
 contains "$out" "orch spawn tech-lead --feature F020-tier" "and it names the command that summons the tech-lead — the recommender must be summonable"
 [ "$("$ORCH" tier show F020-tier | jq -r '.is_confirmed')" = "false" ]
@@ -93,6 +95,7 @@ contains "$("$ORCH" tier crew F020-tier)" "test-engineer" "and the crew grows to
 
 printf '\nchoosing up front skips the recommendation:\n'
 out="$("$ORCH" feature start F021-strict --request "test fixture" --tier strict 2>&1)"
+enter_feature F021-strict >/dev/null 2>&1 || true
 contains "$out" "strict" "a tier can be named at feature start"
 [ "$("$ORCH" escalate rung F021-strict)" = "2" ]; chk $? "strict is rung 2"
 crew="$("$ORCH" tier crew F021-strict)"
@@ -105,12 +108,13 @@ contains "$out" "quick standard strict" "and the refusal lists the real ones"
 
 printf '\nconfirming needs something to confirm:\n'
 "$ORCH" feature start F023-none --request "test fixture" >/dev/null 2>&1
+enter_feature F023-none >/dev/null 2>&1 || true
 out="$("$ORCH" tier confirm F023-none 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "confirming with no recommendation and no --tier is refused"
 contains "$out" "nothing to confirm" "rather than silently defaulting to a tier"
 
 printf '\nthe decision is on disk, and says who made it:\n'
-LEDGER="$ORCH_REPO/docs/features/F020-tier/ledger.jsonl"
+LEDGER="$(fdir F020-tier)/ledger.jsonl"
 jq -e -s 'any(.[]; .event=="tier.recommended" and .tier=="standard" and (.why|length>0))' "$LEDGER" >/dev/null
 chk $? "the recommendation and its reason are in the ledger"
 jq -e -s 'any(.[]; .event=="tier.confirmed" and .tier=="standard")' "$LEDGER" >/dev/null

@@ -11,13 +11,13 @@
 #   director, auditor,
 #   tech-lead           every artifact — they coordinate, plan, adjudicate
 #   developer           its own feature's directory, nothing cross-feature
-#   test-engineer       requirements.md and request.md ONLY. The blind oracle
+#   test-engineer       requirements.md, request.md and contract.md ONLY. The blind oracle
 #                       is the entire point of the strict tier: a test author
 #                       that can read the plan or the status file writes tests
 #                       shaped by the implementation's intentions. If a ruling
 #                       changes what the tests must assert, it belongs in
 #                       requirements.md, not in a side channel.
-#   code-reviewer       requirements.md and request.md ONLY — the criteria.
+#   code-reviewer       requirements.md, request.md, contract.md ONLY — the criteria.
 #                       The diff comes from git, and the developer's trace is
 #                       exactly what fresh context means not having.
 #
@@ -55,11 +55,24 @@ path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.pat
 # feature it was aimed at, and the scope decision is about the aim.
 repo_raw="$(orch_repo_root)"
 repo="$(orch_realpath "$repo_raw")"
+main="$(orch_realpath "$(orch_main_repo)")"
 abs="$(orch_realpath "$path")"
 rel="$abs"
 case "$abs" in
   "$repo"/*)     rel="${abs#"$repo"/}" ;;
   "$repo_raw"/*) rel="${abs#"$repo_raw"/}" ;;
+  "$main"/*)     rel="${abs#"$main"/}" ;;
+esac
+
+# The holdout is the part of the oracle the developer is not shown.
+case "$rel" in .orch/holdout/*)
+  if [ "$role" = developer ]; then
+    ORCH_LEDGER_FEATURE="${ORCH_FEATURE:-$(orch_current_feature)}" \
+      ledger_append gate.blocked gate holdout role developer path "$rel" reason "read"
+    printf 'BLOCKED: the developer does not read the holdout (%s). What it holds is exactly what you are not shown.\n' "$rel" >&2
+    exit 2
+  fi
+  exit 0 ;;
 esac
 
 # Only docs/features/** is scoped; source visibility is write-scope's and the
@@ -91,9 +104,23 @@ it into your feature's requirements."
 fi
 
 case "$role" in
+  code-reviewer)
+    # The readback lens reads the tests and nothing else. A read-back that
+    # has seen the requirements reads their meaning into the tests, which is
+    # the one thing it exists not to do.
+    if [ "${ORCH_LENS:-}" = readback ]; then
+      block "the read-back is written blind" \
+"You are translating what the tests literally assert. requirements.md,
+request.md and contract.md would tell you what they are supposed to assert,
+and the difference between those two is the whole point. Read the files
+\`orch readback files $my_feature\` lists, and nothing under docs/features."
+    fi
+    ;;
+esac
+case "$role" in
   test-engineer|code-reviewer)
     case "$target_file" in
-      requirements.md|request.md) ;;
+      requirements.md|request.md|contract.md) ;;
       *)
         if [ "$role" = "test-engineer" ]; then
           block "the oracle is written blind" \

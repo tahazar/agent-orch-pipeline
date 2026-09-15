@@ -15,6 +15,7 @@ printf 'best-of-N + diagnostic stage\n\n'
 
 export ORCH_FEATURE=F010-bestofn
 "$ORCH" feature start F010-bestofn --request "test fixture" >/dev/null 2>&1
+enter_feature F010-bestofn >/dev/null 2>&1 || true
 git checkout -q -b feature/F010
 
 printf 'spawning candidates:\n'
@@ -23,7 +24,7 @@ chk $? "orch candidates start exits 0"
 [ "$("$ORCH" candidates list F010-bestofn | grep -c .)" = "3" ]
 chk $? "three candidate worktrees exist"
 
-ROOT="$ORCH_REPO/.orch/worktrees/F010-bestofn"
+ROOT="$(sub_wt F010-bestofn "")"; ROOT="${ROOT%/}"
 for c in c1 c2 c3; do
   [ -d "$ROOT/$c/.git" ] || [ -f "$ROOT/$c/.git" ]
   chk $? "$c is a real git worktree"
@@ -138,8 +139,9 @@ printf '\nno winner at all:\n'
 setup_repo bestofn2 >/dev/null 2>&1
 export ORCH_FEATURE=F011-nowin
 "$ORCH" feature start F011-nowin --request "test fixture" >/dev/null 2>&1
+enter_feature F011-nowin >/dev/null 2>&1 || true
 "$ORCH" candidates start F011-nowin -n 2 >/dev/null 2>&1
-R2="$ORCH_REPO/.orch/worktrees/F011-nowin"
+R2="$(sub_wt F011-nowin "")"; R2="${R2%/}"
 for c in c1 c2; do
   ( cd "$R2/$c" && ORCH_REPO="$R2/$c" "$ORCH" run --feature F011-nowin --label build -- sh -c 'exit 1' >/dev/null 2>&1 )
 done
@@ -158,6 +160,7 @@ printf '\ndiagnostic stage:\n'
 setup_repo diagnose >/dev/null 2>&1
 export ORCH_FEATURE=F012-diag
 "$ORCH" feature start F012-diag --request "test fixture" >/dev/null 2>&1
+enter_feature F012-diag >/dev/null 2>&1 || true
 fid="$("$ORCH" findings add F012-diag --raised-by correctness --severity blocking \
         --file src/calc.py --line 2 --claim "add is wrong" --consequence "callers get bad sums")"
 
@@ -188,6 +191,7 @@ printf '\nno distinguishing experiment:\n'
 setup_repo diagnose2 >/dev/null 2>&1
 export ORCH_FEATURE=F013-nodiag
 "$ORCH" feature start F013-nodiag --request "test fixture" >/dev/null 2>&1
+enter_feature F013-nodiag >/dev/null 2>&1 || true
 fid="$("$ORCH" findings add F013-nodiag --raised-by correctness --severity blocking \
         --file src/calc.py --line 2 --claim x --consequence y)"
 "$ORCH" diagnose start F013-nodiag "$fid" -k 3 >/dev/null 2>&1
@@ -205,6 +209,7 @@ printf '\ntwo contradictory predictions:\n'
 setup_repo diagnose3 >/dev/null 2>&1
 export ORCH_FEATURE=F014-contra
 "$ORCH" feature start F014-contra --request "test fixture" >/dev/null 2>&1
+enter_feature F014-contra >/dev/null 2>&1 || true
 fid="$("$ORCH" findings add F014-contra --raised-by correctness --severity blocking --file a --line 1 --claim x --consequence y)"
 "$ORCH" diagnose start F014-contra "$fid" -k 2 >/dev/null 2>&1
 "$ORCH" diagnose predict F014-contra 1 --prediction p1 --command "exit 0" >/dev/null 2>&1

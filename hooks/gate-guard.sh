@@ -45,6 +45,29 @@ esac
 
 feature="$(orch_current_feature)"
 head="$(orch_head_sha)"
+
+# An approval is a statement about a diff against a statement. If either the
+# statement or the oracle moved, the approval describes something else.
+if . "$ORCH_HOME/lib/statement.sh" 2>/dev/null; then
+  if ! msg="$(statement_check "$feature" 2>&1)"; then
+    ORCH_LEDGER_FEATURE="$feature" ledger_append gate.blocked gate human reason statement_moved cmd "$cmd"
+    printf 'BLOCKED: %s\n' "$msg" >&2; exit 2
+  fi
+  if ! msg="$(oracle_check "$feature" "$head" 2>&1)"; then
+    ORCH_LEDGER_FEATURE="$feature" ledger_append gate.blocked gate human reason oracle_moved cmd "$cmd"
+    printf 'BLOCKED: %s\n' "$msg" >&2; exit 2
+  fi
+fi
+
+if . "$ORCH_HOME/lib/holdout.sh" 2>/dev/null && holdout_has "$feature"; then
+  hs="$(substrate_read_gate "$feature" holdout 2>/dev/null)"
+  if [ "$(printf '%s' "$hs" | jq -r '.state // "absent"')" != met ] || [ "$(printf '%s' "$hs" | jq -r '.sha // ""')" != "$head" ]; then
+    ORCH_LEDGER_FEATURE="$feature" ledger_append gate.blocked gate holdout reason "not met at HEAD" cmd "$cmd"
+    printf 'BLOCKED: %s has a holdout and it has not passed at %s.\n\n  orch holdout run %s -- <test command>\n' "$feature" "$(printf '%s' "$head" | cut -c1-12)" "$feature" >&2
+    exit 2
+  fi
+fi
+
 state_json="$(substrate_read_gate "$feature" human 2>/dev/null)"
 state="$(printf '%s' "$state_json" | jq -r '.state // "absent"' 2>/dev/null)"
 sha="$(printf '%s' "$state_json" | jq -r '.sha // ""' 2>/dev/null)"

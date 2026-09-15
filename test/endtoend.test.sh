@@ -60,6 +60,7 @@ export ORCH_FEATURE=F001-mean
 
 printf 'plan:\n'
 "$ORCH" feature start F001-mean --request "test fixture" >/dev/null 2>&1
+enter_feature F001-mean >/dev/null 2>&1 || true
 chk $? "the feature starts"
 [ "$("$ORCH" escalate rung F001-mean)" = "0" ]; chk $? "at rung 0 — the default, and where most features should end"
 mkdir -p docs/features/F001-mean
@@ -71,7 +72,6 @@ EOF
 git add -A && git commit -q -m "requirements"
 
 printf '\nred phase:\n'
-git checkout -q -b feature/F001
 "$ORCH" run --feature F001-mean --label tests -- ./runtests.sh >/dev/null 2>&1
 RC=$?
 [ "$RC" != "0" ]; chk $? "the tests fail before the implementation exists"
@@ -132,22 +132,20 @@ chk_rc 0 "$RC" "the merge is allowed once a human approves at this sha"
 printf '\nthe merge:\n'
 commit_artifacts "F001 evidence and findings"
 sha="$(git rev-parse HEAD)"
-git checkout -q main
-git merge -q --squash feature/F001 && git commit -q -m "F001: mean() handles the empty list"
+# Features live in worktrees; the merge is made from the main checkout.
+( leave_feature && git merge -q --squash feature/F001-mean && git commit -q -m "F001: mean() handles the empty list" )
 chk $? "the reviewed sha squash-merges to main"
-./runtests.sh >/dev/null 2>&1
+( cd "$MAIN" && ./runtests.sh >/dev/null 2>&1 )
 chk $? "and main is green afterwards"
 
 # The approval was scoped to a sha. Anything after it needs a new one.
-git checkout -q feature/F001
 printf '# drive-by\n' >> src/calc.py && git add -A && git commit -q -m "unrelated change"
 guard gate-guard.sh "$MERGE"
 chk_rc 2 "$RC" "a change after approval needs a new approval"
 
 printf '\nledger coverage:\n'
-L="docs/features/F001-mean/ledger.jsonl"
+L="$(fdir F001-mean)/ledger.jsonl"
 commit_artifacts "post-merge ledger"
-git checkout -q main
 [ -s "$L" ]; chk $? "the ledger exists"
 for e in feature.started run.attested gate.checked gate.blocked gate.set finding.raised finding.status; do
   jq -e -s --arg e "$e" 'any(.[]; .event==$e)' "$L" >/dev/null
@@ -161,7 +159,7 @@ chk $? "every ledger row carries ts, actor, feature and sha"
 printf '\nno guessed numbers anywhere:\n'
 # The whole reason for the ledger. The alternative is agents typing
 # "~13k (est.)" at each other. Nothing in the artifacts may contain an estimate.
-if grep -rn 'est\.\|~[0-9]*k tokens\|approximately [0-9]* tokens' docs/features/ 2>/dev/null; then
+if grep -rn '(est\.\|[[:space:]]est\.\|~[0-9]*k tokens\|approximately [0-9]* tokens' docs/features/ "$MAIN/docs/features/" 2>/dev/null; then
   bad "an estimated number leaked into the artifacts"
 else
   ok "no estimated token counts anywhere in docs/features/"

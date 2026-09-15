@@ -70,7 +70,8 @@ export ORCH_HOME
 #
 # CLAUDE_PROJECT_DIR remains the fallback for hooks, which Claude Code can spawn
 # with a cwd outside any repository.
-orch_repo_root() {
+# The tree this process was started against, before any feature redirect.
+_orch_base_root() {
   local top
   if [ -n "${ORCH_REPO:-}" ]; then printf '%s' "$ORCH_REPO"; return 0; fi
   top="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -80,6 +81,73 @@ orch_repo_root() {
     printf '%s' "$CLAUDE_PROJECT_DIR"; return 0
   fi
   printf ''
+}
+
+# The main checkout: the one whose .git is a directory. Every worktree orch
+# makes — a feature's, a candidate's, a refactor pass's — shares it, and it is
+# where orch keeps state that is not a feature's: .orch/, the run ledger, the
+# layers file.
+orch_main_repo() {
+  local base common
+  base="$(_orch_base_root)"
+  [ -n "$base" ] || { printf ''; return 0; }
+  common="$(git -C "$base" rev-parse --git-common-dir 2>/dev/null)"
+  case "$common" in
+    '') printf '%s' "$base" ;;
+    /*) ( cd -P "$common/.." 2>/dev/null && pwd ) || printf '%s' "$base" ;;
+    *)  ( cd -P "$base/$common/.." 2>/dev/null && pwd ) || printf '%s' "$base" ;;
+  esac
+}
+
+# Where a feature's tree is. Features run in parallel, so each has a
+# worktree of its own under the main checkout; a feature started before that
+# existed, or one started with --here, lives in the main checkout.
+orch_feature_repo() {  # orch_feature_repo <feature>
+  local main wt
+  main="$(orch_main_repo)"
+  wt="$main/.orch/worktrees/$1/main"
+  if [ -d "$wt" ]; then printf '%s' "$wt"; else printf '%s' "$main"; fi
+}
+
+# The feature a path under .orch/worktrees/<F>/... belongs to, or ''.
+_orch_feature_of_path() {
+  case "$1" in
+    */.orch/worktrees/F[0-9][0-9][0-9]*/*)
+      local rest="${1#*/.orch/worktrees/}"; printf '%s' "${rest%%/*}" ;;
+    *) printf '' ;;
+  esac
+}
+
+# The repo orch operates on.
+#
+# A process inside a feature's worktree, or a candidate's or a refactor
+# pass's under it, operates on that tree. A process in the main checkout that
+# names a feature (ORCH_FEATURE, set by the launcher for every crew session
+# and by bin/orch from the command line) is redirected to that feature's
+# worktree when one exists — so `orch gate check F001-x` from the director's
+# terminal reads F001's HEAD, not the checkout's.
+orch_repo_root() {
+  local base f pf wt
+  base="$(_orch_base_root)"
+  [ -n "$base" ] || { printf ''; return 0; }
+  pf="$(_orch_feature_of_path "$base")"
+  f="${ORCH_FEATURE:-}"
+  if orch_valid_feature "${f:-x}" && [ "$f" != _orch ]; then
+    # Inside this feature's tree, or a candidate's or refactor pass's under
+    # it: stay. Those must operate on their own tree.
+    [ "$pf" = "$f" ] && { printf '%s' "$base"; return 0; }
+    wt="$(orch_main_repo)/.orch/worktrees/$f/main"
+    [ -d "$wt" ] && { printf '%s' "$wt"; return 0; }
+  fi
+  printf '%s' "$base"
+}
+
+# Every feature this repository has, wherever its tree is: started in a
+# worktree, started in place, or merged and gone.
+orch_features_list() {
+  local main; main="$(orch_main_repo)"
+  { ls "$main/docs/features" 2>/dev/null; ls "$main/.orch/worktrees" 2>/dev/null; } \
+    | grep -E '^F[0-9][0-9][0-9]' | sort -u
 }
 
 # Physical path of an existing file or directory, symlinks resolved.
@@ -99,8 +167,15 @@ orch_realpath() {
     return 0
   fi
   d="$(dirname "$p")"; b="$(basename "$p")"
+  # The directory may not exist yet (a first write into .github/workflows/).
+  # Resolve the longest ancestor that does, and carry the rest along.
+  local rest=''
+  while [ ! -d "$d" ] && [ "$d" != "/" ] && [ "$d" != "." ]; do
+    rest="$(basename "$d")${rest:+/$rest}"
+    d="$(dirname "$d")"
+  done
   d="$( cd -P "$d" 2>/dev/null && pwd )"
-  if [ -n "$d" ]; then printf '%s/%s' "$d" "$b"; else printf '%s' "$p"; fi
+  if [ -n "$d" ]; then printf '%s%s/%s' "$d" "${rest:+/$rest}" "$b"; else printf '%s' "$p"; fi
 }
 
 orch_require_repo() {
@@ -128,16 +203,28 @@ orch_valid_feature() {
   esac
 }
 
+# A feature's artifacts live in the feature's tree and travel with its branch;
+# the run's (_orch) live in the main checkout. A candidate or refactor
+# worktree under a feature writes to the feature's store, not its own copy.
 orch_feature_dir() {  # orch_feature_dir <feature>
-  printf '%s/docs/features/%s' "${ORCH_REPO:-$(orch_repo_root)}" "$1"
+  if [ "$1" = _orch ]; then printf '%s/docs/features/_orch' "$(orch_main_repo)"; return 0; fi
+  printf '%s/docs/features/%s' "$(orch_feature_repo "$1")" "$1"
 }
+
+# orch's own state — the current-feature marker, the base branch, holdout,
+# worktrees — is per repository, never per worktree.
+orch_state_dir() { printf '%s/.orch' "$(orch_main_repo)"; }
 
 # The feature a hook should attribute an event to. Hooks get no arguments, so
 # this is the only way they can find one.
 orch_current_feature() {
-  if [ -n "${ORCH_FEATURE:-}" ]; then printf '%s' "$ORCH_FEATURE"; return 0; fi
   local f state
-  state="${ORCH_REPO:-$(orch_repo_root)}/.orch/current-feature"
+  # A process inside a feature's worktree is on that feature, whatever the
+  # marker says — the marker is one global file and features run in parallel.
+  f="$(_orch_feature_of_path "$(_orch_base_root)")"
+  [ -n "$f" ] && { printf '%s' "$f"; return 0; }
+  if [ -n "${ORCH_FEATURE:-}" ]; then printf '%s' "$ORCH_FEATURE"; return 0; fi
+  state="$(orch_state_dir)/current-feature"
   if [ -r "$state" ]; then
     f="$(head -1 "$state" 2>/dev/null | tr -d ' \t\r\n')"
     if orch_valid_feature "$f"; then printf '%s' "$f"; return 0; fi
@@ -147,8 +234,8 @@ orch_current_feature() {
 
 orch_set_current_feature() {  # orch_set_current_feature <feature>
   orch_valid_feature "$1" || die "invalid feature name: $1"
-  mkdir -p "${ORCH_REPO}/.orch"
-  printf '%s\n' "$1" > "${ORCH_REPO}/.orch/current-feature"
+  mkdir -p "$(orch_state_dir)"
+  printf '%s\n' "$1" > "$(orch_state_dir)/current-feature"
 }
 
 # ---------------------------------------------------------------------------
@@ -211,20 +298,24 @@ orch_sha256() {
 orch_with_lock() {  # orch_with_lock <lockfile> <cmd...>
   local lock="$1"; shift
   mkdir -p "$(dirname "$lock")"
-  if have flock; then
+  if have flock && [ "${ORCH_NO_FLOCK:-0}" != "1" ]; then
     ( : > "$lock" 2>/dev/null || true
       exec 9>>"$lock" || exit 1
       flock -w "${ORCH_LOCK_TIMEOUT:-10}" 9 || { printf 'orch: lock timeout on %s\n' "$lock" >&2; exit 75; }
       "$@" )
     return $?
   fi
-  local d="${lock}.d" waited=0
+  local d="${lock}.d" waited=0 rc
   while ! mkdir "$d" 2>/dev/null; do
     waited=$((waited + 1))
     [ "$waited" -gt "$(( ${ORCH_LOCK_TIMEOUT:-10} * 10 ))" ] && { warn "lock timeout on $lock"; return 75; }
     sleep 0.1
   done
-  "$@"; local rc=$?
+  # In a subshell, so a command that dies under the lock — a merge that hits
+  # a conflict — still releases it. Without this, macOS (no flock) kept a
+  # stale lock directory after the first rejected merge and every merge after
+  # it timed out.
+  ( "$@" ); rc=$?
   rmdir "$d" 2>/dev/null || true
   return $rc
 }

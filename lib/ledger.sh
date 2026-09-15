@@ -53,15 +53,13 @@ ledger_append() {
 
 # Every ledger line for a feature, or for all features when given "--all".
 ledger_read() {  # ledger_read <feature|--all>
-  local f="$1" root
-  root="$(orch_repo_root)/docs/features"
-  [ -d "$root" ] || return 0
+  local f="$1"
   if [ "$f" = "--all" ]; then
-    find "$root" -name ledger.jsonl -type f 2>/dev/null | sort | while IFS= read -r p; do
-      cat "$p" 2>/dev/null
+    for f in $(orch_features_list) _orch; do
+      cat "$(orch_feature_dir "$f")/ledger.jsonl" 2>/dev/null
     done
   else
-    cat "$root/$f/ledger.jsonl" 2>/dev/null
+    cat "$(orch_feature_dir "$f")/ledger.jsonl" 2>/dev/null
   fi
 }
 

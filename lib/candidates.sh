@@ -40,7 +40,7 @@ candidates_approach() {  # candidates_approach <index>
   esac
 }
 
-candidates_root()  { printf '%s/.orch/worktrees/%s' "${ORCH_REPO:-.}" "$1"; }
+candidates_root()  { printf '%s/worktrees/%s' "$(orch_state_dir)" "$1"; }
 candidates_path()  { printf '%s/candidates.jsonl' "$(orch_feature_dir "$1")"; }
 candidates_branch() { printf 'orch/%s/c%s' "$1" "$2"; }
 

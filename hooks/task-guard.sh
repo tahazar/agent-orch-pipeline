@@ -26,6 +26,12 @@ export ORCH_HOME ORCH_PROG
   exit 0
 }
 . "$ORCH_HOME/lib/findings.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/statement.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/spec.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/substrate/base.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
 
@@ -45,6 +51,7 @@ feature="$(printf '%s' "$payload" | jq -r '.task.metadata.orch.feature // ""' 2>
 gate="$meta_gate"
 if [ -z "$gate" ]; then
   case "$subject" in
+    *contract*)                                   gate=contract-compiles ;;
     *"red phase"*|*"failing test"*|*test-engineer*) gate=tests-fail-correctly ;;
     *implement*|*developer*|*build*)           gate=tests-pass ;;
     *review*|*code-reviewer*)                     gate=review-clean ;;
@@ -60,7 +67,34 @@ block() {  # block <reason> <remedy...>
 
 ORCH_LEDGER_FEATURE="$feature" ledger_append gate.checked gate "$gate" task "$subject"
 
+# The statement holds at every gate. A requirements.md edited after the freeze
+# changes what every one of these gates is measuring, so no stage completes
+# against a moved statement.
+if declare -f statement_check >/dev/null 2>&1; then
+  msg="$(statement_check "$feature" 2>&1)" || block "the statement moved" "$msg"
+fi
+
 case "$gate" in
+  contract-compiles)
+    # The statement, made compilable: stubs for contract.md that build, with
+    # no oracle in them. Lean's `sorry` — the sketch type-checks before any
+    # hole is filled. Met here, the red phase must then compile too.
+    msg="$(evidence_verify "$feature" build --claim pass --fresh 2>&1)" \
+      || block "the contract does not build" \
+"$msg
+
+Commit stubs for every signature in contract.md — bodies that raise or throw
+\"not implemented\" — and attest the build at that commit:
+
+  orch run --feature $feature --label build -- <build command>"
+    if declare -f oracle_check >/dev/null 2>&1; then
+      msg="$(oracle_check "$feature" 2>&1)" || block "the contract commit touched the oracle" "$msg"
+    fi
+    if declare -f substrate_set_gate >/dev/null 2>&1; then
+      substrate_set_gate "$feature" contract met "$(orch_head_sha)" >/dev/null 2>&1
+    fi
+    ;;
+
   tests-fail-correctly)
     if ! evidence_verify "$feature" tests --claim fail >/dev/null 2>&1; then
       block "the red phase is unattested" \
@@ -70,6 +104,65 @@ A test that passes now would be testing nothing, and you would never find out.
   orch run --feature $feature --label tests -- <your test command>
 
 The run is expected to exit non-zero. That non-zero exit IS the attestation."
+    fi
+    # The red run must be over a committed tree: the oracle is frozen as the
+    # tree at that run's sha, and an uncommitted test file is not in it.
+    msg="$(evidence_verify "$feature" tests --claim fail --clean 2>&1)" \
+      || block "the red phase ran over uncommitted tests" \
+"$msg
+
+Commit the tests, then attest the red phase again. The oracle is frozen as the
+test tree at the sha of that run, and a file that is not committed is not in it."
+    # The red run must postdate the statement it claims to test.
+    if declare -f statement_frozen_at >/dev/null 2>&1; then
+      red_ts="$(evidence_latest "$feature" tests | jq -r '.ts // ""')"
+      frz_ts="$(statement_frozen_at "$feature")"
+      if [ -n "$frz_ts" ] && [ -n "$red_ts" ] && [ "$red_ts" \< "$frz_ts" ]; then
+        block "the red phase predates the statement" \
+"The statement was re-frozen at $frz_ts; the red run is from $red_ts. Tests
+written against the old statement do not describe the new one. Re-read
+requirements.md, amend the tests, and attest the red phase again."
+      fi
+    fi
+    # Once the contract compiles, the red phase must compile too: the tests
+    # fail because the behaviour is missing, not because an import is. A
+    # feature without a contract gate records the gap instead of blocking.
+    red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+    if declare -f substrate_read_gate >/dev/null 2>&1 \
+       && [ "$(substrate_read_gate "$feature" contract 2>/dev/null | jq -r '.state // "absent"')" = met ]; then
+      b_row="$(evidence_latest "$feature" build)"
+      if [ -z "$b_row" ] || [ "$(printf '%s' "$b_row" | jq -r .exit_code)" != "0" ] \
+         || [ "$(printf '%s' "$b_row" | jq -r '.git_sha // ""')" != "$red_sha" ]; then
+        block "the red phase does not compile" \
+"The contract compiles, so a suite written against it must compile too: the
+tests fail on \"not implemented\", not on a missing import. Attest the build at
+the same commit as the red run:
+
+  orch run --feature $feature --label build -- <build command>
+  orch run --feature $feature --label tests -- <test command>   # expected to fail"
+      fi
+    else
+      ORCH_LEDGER_FEATURE="$feature" ledger_append red.unbuilt reason "no contract gate; the red run's build was not required"
+    fi
+    # Every requirement id must be cited by an oracle test before the oracle
+    # is frozen — a requirement nothing cites is one nothing will fail for.
+    if declare -f spec_raise >/dev/null 2>&1 && [ "$(escalate_rung "$feature" 2>/dev/null || printf 0)" -ge 2 ]; then
+      red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      n_unc="$(spec_raise "$feature" "${red_sha:-HEAD}" 2>/dev/null | tail -1)"
+      if [ "${n_unc:-0}" != "unchecked" ] && [ "${n_unc:-0}" -gt 0 ]; then
+        block "$n_unc requirement(s) cited by no oracle test" \
+"$(findings_current "$feature" | jq -r 'select(.raised_by=="coverage" and .status=="open") | "  \(.id)  \(.file):\(.line)  \(.claim)"')
+
+Every requirement id in requirements.md must appear in the name or a comment of
+an oracle test. Add the test, or dispute the finding by naming the ambiguity:
+
+  orch findings dispute $feature <id> --reason \"<why it cannot be turned into an assertion>\""
+      fi
+    fi
+    # Freeze the oracle: from here on, the tests that pass must be these.
+    if declare -f oracle_freeze >/dev/null 2>&1; then
+      red_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      [ -n "$red_sha" ] && [ "$red_sha" != "unknown" ] && oracle_freeze "$feature" "$red_sha" >/dev/null 2>&1
     fi
     ;;
 
@@ -84,6 +177,41 @@ command, not your summary of it.
 
 If it is already green, it is green at a sha older than HEAD — run it again."
     done
+    for g in build tests; do
+      msg="$(evidence_verify "$feature" "$g" --claim pass --clean 2>&1)" \
+        || block "$g ran over uncommitted changes" "$msg"
+    done
+    # The tests that pass are the tests that failed. Checked at the sha of
+    # the green run, which is where the claim is made.
+    if declare -f oracle_check >/dev/null 2>&1; then
+      green_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
+      msg="$(oracle_check "$feature" "${green_sha:-HEAD}" 2>&1)" || block "the oracle moved" "$msg"
+    fi
+    # Sensors with a threshold set are gates; the rest are report lines.
+    if declare -f sensor_gate >/dev/null 2>&1; then
+      msg="$(sensor_gate "$feature" "${green_sha:-$(orch_head_sha)}" 2>&1)" || block "a sensor is below its threshold" \
+"$msg
+
+Thresholds are ORCH_T_DIFF_COV and ORCH_T_MUTATION. Unset, a sensor is a
+report line; set, it is this gate."
+    fi
+    # No new escape hatches. Each increase against the base is a blocking
+    # finding raised by `axioms`; an open one holds the gate, a disputed one
+    # does not.
+    if declare -f axioms_raise >/dev/null 2>&1; then
+      base="$(git -C "$ORCH_REPO" merge-base "$(escalate_base_branch)" "${green_sha:-HEAD}" 2>/dev/null)"
+      n_ax="$(axioms_raise "$feature" "${base:-$(escalate_base_branch)}" "${green_sha:-HEAD}" 2>/dev/null | tail -1)"
+      if [ "${n_ax:-0}" -gt 0 ]; then
+        block "$n_ax new escape hatch(es) in the diff" \
+"$(axioms_open "$feature")
+
+A skip, an ignore, a disabled lint or a changed test config is a \`sorry\` with a
+different spelling: the suite can go green without proving anything. Remove
+it, or dispute the finding with a reason the auditor can test:
+
+  orch findings dispute $feature <id> --reason \"<why this one is legitimate>\""
+      fi
+    fi
     ;;
 
   review-clean)

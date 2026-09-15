@@ -12,6 +12,7 @@ printf 'reviewer ensemble + critique uptake\n\n'
 
 export ORCH_FEATURE=F009-review
 "$ORCH" feature start F009-review --request "test fixture" >/dev/null 2>&1
+enter_feature F009-review >/dev/null 2>&1 || true
 
 # A seeded-defect fixture. Two defects that different lenses see: a wrong
 # result (correctness) and an unguarded division (failure-modes). Neither lens
@@ -117,6 +118,7 @@ chk $? "a finding both lenses raised counts as unique to neither"
 # feature. The scope packet must shrink to the delta once a verdict exists.
 printf '\nre-review scope:\n'
 "$ORCH" feature start F015-scope --request "test fixture" >/dev/null 2>&1
+enter_feature F015-scope >/dev/null 2>&1 || true
 out="$("$ORCH" review scope F015-scope)"
 contains "$out" "FIRST review" "with no verdict on record, the first review is the whole diff"
 
