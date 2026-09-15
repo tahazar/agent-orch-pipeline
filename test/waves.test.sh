@@ -77,6 +77,9 @@ out="$("$ORCH" merge F100-a 2>&1)"; rc=$?
 chk_rc 1 "$rc" "a cannot land twice"
 
 BASE1="$(git rev-parse main)"
+# The rest of the queue runs on the directory lock, as it does on macOS
+# (no flock): a merge that dies under the lock must still release it.
+export ORCH_NO_FLOCK=1
 out="$("$ORCH" merge F103-d 2>&1)"; rc=$?
 chk_rc 1 "$rc" "d, which also created src/a.py, conflicts"
 contains "$out" "conflicts with main" "and is told so"

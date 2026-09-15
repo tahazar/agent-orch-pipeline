@@ -298,20 +298,24 @@ orch_sha256() {
 orch_with_lock() {  # orch_with_lock <lockfile> <cmd...>
   local lock="$1"; shift
   mkdir -p "$(dirname "$lock")"
-  if have flock; then
+  if have flock && [ "${ORCH_NO_FLOCK:-0}" != "1" ]; then
     ( : > "$lock" 2>/dev/null || true
       exec 9>>"$lock" || exit 1
       flock -w "${ORCH_LOCK_TIMEOUT:-10}" 9 || { printf 'orch: lock timeout on %s\n' "$lock" >&2; exit 75; }
       "$@" )
     return $?
   fi
-  local d="${lock}.d" waited=0
+  local d="${lock}.d" waited=0 rc
   while ! mkdir "$d" 2>/dev/null; do
     waited=$((waited + 1))
     [ "$waited" -gt "$(( ${ORCH_LOCK_TIMEOUT:-10} * 10 ))" ] && { warn "lock timeout on $lock"; return 75; }
     sleep 0.1
   done
-  "$@"; local rc=$?
+  # In a subshell, so a command that dies under the lock — a merge that hits
+  # a conflict — still releases it. Without this, macOS (no flock) kept a
+  # stale lock directory after the first rejected merge and every merge after
+  # it timed out.
+  ( "$@" ); rc=$?
   rmdir "$d" 2>/dev/null || true
   return $rc
 }
