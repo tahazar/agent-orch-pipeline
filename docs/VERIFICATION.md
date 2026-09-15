@@ -361,6 +361,44 @@ it stays is *holdout unique catches* — a holdout that never fails where the
 visible suite passed is ceremony, and should be deleted like any other gate
 that never blocks.
 
+### 9. Nothing measures whether the oracle constrains anything
+
+**FLT:** the kernel either accepts or rejects; there is no such thing as a
+proof that "covers" a statement without proving it.
+
+**orch:** the closest thing to a test-quality signal is the red phase, which
+shows the suite *can* fail, once. Line coverage, if a repo reports it, says a
+line ran; it does not say a test would notice if the line were wrong. A suite
+written by an agent that has seen the implementation typically has high
+coverage and asserts little — and that is the suite `quick` and `standard`
+produce by construction.
+
+**Mechanism:** mutation score on the files the diff touches, as an attested
+number [P42]. Reported at every tier, gated at `standard` and above, and a
+ranking axis for best-of-N. CPU, not tokens; the per-tool extractor is the
+cost. Alongside it, **diff coverage** — lines the diff added or changed that
+the suite executes — as the mechanical form of "nothing is written that a test
+did not demand". The design that puts both to work is in
+[`AGENT-TDD.md`](AGENT-TDD.md).
+
+### 10. The developer's orders invite the accretion pathology
+
+**Böckeler [P42]:** agents given a TDD workflow "kept making locally minimal
+changes around the first test", the early design hardened, and they rarely
+refactored. Agents without it designed first and wrote once.
+
+**orch:** at `strict` the developer receives a whole failing suite, which is
+the right input; but its spawn orders in `lib/launcher/base.sh` say "claim
+your tasks, implement, and attest", and nothing stops it working the failures
+one at a time — the same greedy loop, arrived at from the other direction.
+
+**Mechanism:** one sentence in the orders — read the entire suite and the
+requirements, design the implementation, then write it; the suite is a
+specification, not a to-do list — and batched delivery of every failure at
+once, which `orch run` already records. Plus a separate refactor pass with a
+mechanical trigger and exit, which is the TDD step the agent skips and the
+one that produces design; specified in [`AGENT-TDD.md`](AGENT-TDD.md).
+
 ---
 
 ## What not to copy
@@ -423,7 +461,10 @@ too.
 Gaps 1, 2 and 3 first: they are hooks over `sha256` and `git rev-parse`, they
 cost no model calls, and together they turn "the tests that pass are the tests
 that failed, against the statement that was frozen, with no new escape
-hatches" from a hope into a property. Gap 5 next, because it changes what the
-human does at the only point the human is in the loop. Gaps 4, 6 and 7 as they
-come. Gap 8 only once `orch report` has enough features to say whether the
-visible suite is being overfit at all.
+hatches" from a hope into a property. Gap 10's one sentence next, because it
+is free. Then gap 9's sensors as report lines before they become gates. Gap 5
+after that, because it changes what the human does at the only point the
+human is in the loop. Gaps 4, 6 and 7 as they come. Gap 8 only once the
+mutation numbers say the visible suite is being overfit at all. The full
+sequence, with the phases these gaps become, is in
+[`AGENT-TDD.md`](AGENT-TDD.md).

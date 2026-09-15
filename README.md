@@ -367,6 +367,7 @@ hooks/            the six enforcement hooks
 test/             run-all.sh
 docs/PROVENANCE.md  every cited result, with its verification status
 docs/VERIFICATION.md what the FLT formalization teaches this pipeline, and the gaps it exposes
+docs/AGENT-TDD.md   TDD taken apart and rebuilt for an agent; what strict should become
 ```
 
 State lives in three places: the **shared task list** (coordination),

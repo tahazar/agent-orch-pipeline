@@ -166,6 +166,23 @@ a time".
 
 ---
 
+## [P43] TDD-Agent — **unverified**
+
+> *TDD-Agent: Test-Driven Reasoning for Code Generation.* arXiv:2608.16742.
+> Blocked; from a search-engine extract only: "at its fifth iteration,
+> TDD-Agent exhibits comparable token consumption to baseline agents while
+> consistently achieving superior performance."
+
+Recorded because it appears to contradict [P42] and does not: it measures
+test-first **reasoning** inside a generation on correctness benchmarks, where
+[P42] measures test-first **process** in the tool loop on design-level tasks.
+The distinction is load-bearing in `docs/AGENT-TDD.md` and should be checked
+against the paper before being leaned on further.
+
+*Acts on:* the developer's own test path in `docs/AGENT-TDD.md`, phase 3.
+
+---
+
 ## [P40] Reward hacking on tests — **partial**
 
 > ImpossibleBench (lesswrong summary; arXiv paper not fetched). "GPT-5
