@@ -68,7 +68,7 @@ layer that is off refuses with one line saying so.
 | `floor` | attested evidence, frozen statement and oracle, escape-hatch count, sensors, the packet | git, jq, a test command. Always on |
 | `crew` | tiers, blind roles, reviewers, auditor, refactor pass, read-back, holdout | the `claude` CLI |
 | `upkeep` | a repo-wide census, overnight refactor passes, a morning to keep or discard them | the `claude` CLI |
-| `product` | personas, stories, the walkthrough, the night | not built yet |
+| `product` | personas, stories, the chain to a feature, the walkthrough, the night and the morning | the `claude` CLI, and a product the walkthrough can run (`ORCH_PRODUCT_CMD`) |
 
 ```bash
 orch init --profile library    # floor, crew          — the default when there is no file
@@ -378,6 +378,67 @@ What is not here yet: maintenance driven by production errors and latency. It
 needs telemetry orch cannot assume, and it must read attested aggregates,
 never raw logs.
 
+## Product: personas, stories, the night, the morning
+
+The persona chain is the verification chain one level up: a small frozen
+statement at the top, everything below measured against it. You write the
+top; nothing else may.
+
+```
+docs/product/personas/maya.md          # Maya, the weekly exporter
+                                       evidence: observed          ← hypothesized | observed | measured
+                                       sources: support tickets 2026-Q2
+docs/product/stories/S001-export-week.md
+                                       # S001 Export the week as CSV
+                                       persona: maya
+                                       tier: standard               (optional)
+                                       after: S000                  (optional: the feature graph)
+                                       metric: exports per user rises   (a hypothesis, for later)
+```
+
+```bash
+orch product trace          # persona -> story -> feature -> state; a broken link or an orphan exits 1
+orch product plan           # one feature per story: the request IS the story, the tier is the story's
+orch product night          # plan, then crew every ready feature in parallel, up to ORCH_PRODUCT_BUDGET
+orch product morning        # each feature: the walkthrough first, then the numbers, never the diff
+orch product keep F001-export-week                          # your approval and the landing, in one verb
+orch product iterate F002-schedule --note "weekly by default"   # amend the request; re-freeze; the crew re-reads
+orch product discard F003-share --why "nobody shares on Monday" # archived, and the reason is written against the persona
+orch product personas       # each persona, its stories, what the mornings taught it
+```
+
+Three things hold the chain honest:
+
+- **Evidence status.** A persona nobody has observed is a hypothesis, and
+  everything built for it is exploratory: the morning says so, and `keep`
+  refuses it without `--exploratory`. Real behaviour is the persona's
+  oracle; a persona you invented gets exploratory features until you meet
+  one of its people.
+- **Frozen by hash.** Personas and stories are frozen like the statement.
+  An edit after the freeze is `PRODUCT_MOVED` (exit 9) and `plan` refuses
+  until `orch product freeze --why "..."` records why. Discards are the
+  input: the reason is written against the persona in the run ledger, and
+  the file is yours to amend and re-freeze.
+- **The walkthrough.** Before a story-backed feature can land, a fresh
+  session is given the persona, the story and the running product, and
+  nothing else: source, tests and every feature artifact are denied to it by
+  the read guard. It tries to reach the goal as that person, counts its
+  steps, records done or blocked at that sha, and files what stopped it as
+  findings in the persona's voice. The merge checks the record, not the
+  prose; the packet leads with it.
+
+```bash
+ORCH_PRODUCT_CMD='npm run dev' orch walkthrough start F001-export-week
+orch walkthrough record F001-export-week --outcome done --steps 4 --minutes 3 --note "the button says Download"
+```
+
+A story-backed feature is any feature whose request carries a `Story: S00N`
+line, so a feature you start by hand joins the chain by citing one. Upkeep
+features do not need a story. What is not here yet: the metrics loop — a
+story's `metric:` line is recorded and shown, not measured. It needs
+telemetry orch cannot assume, and the guardrail discipline in
+`docs/VERIFICATION.md` before anything is allowed to optimise for it.
+
 ## The read-back and the holdout
 
 Two more things borrowed from how the FLT proof was checked. Both are optional.
@@ -502,7 +563,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-869 assertions across eighteen suites. No Claude session, no API key, no network.
+970 assertions across nineteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -535,6 +596,8 @@ lib/
   holdout.sh      the part of the oracle the developer never sees
   layers.sh       which layers a repository has on
   upkeep.sh       the census, the night, the morning
+  product.sh      personas, stories, the chain, the product night and morning
+  walkthrough.sh  the persona walkthrough: the read-back at product level
   merge.sh        the merge queue: lock, integration run, advance
   waves.sh        the feature dependency graph
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes

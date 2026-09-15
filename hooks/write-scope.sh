@@ -76,6 +76,9 @@ esac
 # gate measures against. Only the tech-lead writes it, and after the freeze
 # even that is STATEMENT_MOVED until re-frozen with a reason.
 STATEMENT='docs/features/*/request.md docs/features/*/requirements.md docs/features/*/contract.md'
+# Personas and stories are the top of the chain and the human's alone. A
+# role that could edit a persona could make the product fit the persona.
+PRODUCT='docs/product/*'
 TESTS="${ORCH_TEST_GLOB:-test/* tests/* spec/* *_test.* *.test.* *_spec.*}"
 DEVTESTS="${ORCH_DEV_TEST_GLOB:-test/dev/* tests/dev/* spec/dev/*}"
 # Trusted configuration: the files that decide what "the tests pass" means.
@@ -103,9 +106,9 @@ case "$role" in
     . "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
     rung="$(escalate_rung "$(orch_current_feature)" 2>/dev/null)" || rung=0
     if [ "${rung:-0}" -ge 2 ]; then
-      ALLOW='*' ; DENY="$TESTS $STATEMENT $AXIOMS .orch/holdout/*"
+      ALLOW='*' ; DENY="$TESTS $STATEMENT $AXIOMS $PRODUCT .orch/holdout/*"
     else
-      ALLOW='*' ; DENY="$STATEMENT .orch/holdout/*"
+      ALLOW='*' ; DENY="$STATEMENT $PRODUCT .orch/holdout/*"
     fi ;;
   *)
     exit 0 ;;
@@ -133,6 +136,14 @@ block() {
 # tests there, and they count toward coverage but never toward the oracle.
 if [ "$role" = developer ] && matches "$rel" $DEVTESTS; then
   DENY="$STATEMENT"
+fi
+
+if matches "$rel" $PRODUCT; then
+  block "personas and stories are the human's" \
+"docs/product/** is the top of the chain: every story, feature and test below
+it is measured against it, and it is frozen by hash. No role edits it. If a
+persona or story is wrong, say so in a finding; the human amends it and
+re-freezes:  orch product freeze --why ..."
 fi
 
 if [ -n "$DENY" ] && matches "$rel" $DENY; then

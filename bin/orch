@@ -111,6 +111,17 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch upkeep night [--top N]          a refactor pass per file, in parallel, landing on branches
   orch upkeep morning                  what held; then  orch upkeep keep|discard <F>
 
+  orch product trace                   persona -> story -> feature -> state; orphans exit 1
+  orch product freeze [--why W]        hash the personas and stories; check exits 9 if one moved
+  orch product plan [--story S]        one feature per story, the request written from the story
+  orch product night [--budget N]      plan, then crew every ready feature, in parallel
+  orch product morning                 each feature: the walkthrough first, then the numbers
+  orch product keep <F> [--exploratory] | iterate <F> --note T | discard <F> --why W
+  orch product personas                each persona, its stories, what the mornings taught it
+  orch walkthrough start <F>           a fresh session as the persona, blind to the code
+  orch walkthrough record <F> --outcome done|blocked --steps N [--minutes M] [--note T]
+  orch walkthrough status <F>
+
   orch candidates start <F> [-n N]     rung 3: N isolated worktrees
   orch candidates collect <F> [gates…] gather each candidate's own attestations
   orch candidates select <F>           mechanical selection; prints the winner
@@ -936,6 +947,48 @@ be compared against what you actually said.
       keep)    upkeep_keep "$(need "${1:-}" 'upkeep keep: needs a feature')" ;;
       discard) f="$(need "${1:-}" 'upkeep discard: needs a feature')"; shift; upkeep_discard "$f" "$(opt why '' "$@")" ;;
       *) die "upkeep: expected scan, plan, night, morning, keep, or discard" ;;
+    esac
+    ;;
+
+  product)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require product
+    . "$ORCH_HOME/lib/product.sh"
+    ORCH_ROOT_BIN="$0"; export ORCH_ROOT_BIN
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      trace)    product_trace ;;
+      freeze)   product_freeze "$(opt why '' "$@")" ;;
+      check)    product_check && printf 'product: as frozen\n' ;;
+      personas) product_personas_render ;;
+      plan)     product_plan "$@" ;;
+      night)    product_night "$@" ;;
+      morning)  product_morning ;;
+      keep)     f="$(need "${1:-}" 'product keep: needs a feature')"; shift; product_keep "$f" "$@" ;;
+      iterate)  f="$(need "${1:-}" 'product iterate: needs a feature')"; shift; product_iterate "$f" "$@" ;;
+      discard)  f="$(need "${1:-}" 'product discard: needs a feature')"; shift; product_discard "$f" "$@" ;;
+      *) die "product: expected trace, freeze, check, personas, plan, night, morning, keep, iterate, or discard" ;;
+    esac
+    ;;
+
+  walkthrough)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require product
+    . "$ORCH_HOME/lib/walkthrough.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'walkthrough: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      start)
+        # A code-reviewer with the walkthrough lens: no write tools; source,
+        # tests and every feature artifact denied; records through orch.
+        . "$ORCH_HOME/lib/launcher/base.sh"
+        ( export ORCH_LENS=walkthrough
+          ORCH_LEDGER_FEATURE="$f" ORCH_PROMPT="$(walkthrough_orders "$f")" \
+            launcher_spawn code-reviewer "$(launcher_session_name code-reviewer walkthrough)" "$(orch_feature_repo "$f")" \
+              $(launcher_env code-reviewer "$f") )
+        ;;
+      orders) walkthrough_orders "$f" ;;
+      record) walkthrough_record "$f" "$(opt outcome '' "$@")" "$(opt steps '' "$@")" "$(opt minutes '' "$@")" "$(opt note '' "$@")" ;;
+      status) walkthrough_render "$f" ;;
+      *) die "walkthrough: expected start, record, status, or orders" ;;
     esac
     ;;
 

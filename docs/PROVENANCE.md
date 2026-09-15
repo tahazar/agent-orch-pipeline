@@ -211,6 +211,81 @@ tests) in `docs/VERIFICATION.md`.
 *Acts on:* gap 3 in `docs/VERIFICATION.md`, as the hand-run version of an
 enumerated trust base.
 
+## [P45] UXAgent — **unverified**
+
+> Lu et al. *UXAgent: An LLM Agent-Based Usability Testing Framework for Web
+> Design.* arXiv:2502.12561 (CHI 2025), and the extended system paper
+> arXiv:2504.09407. Blocked from the build environment; from search
+> summaries: personas are generated, an LLM agent drives a real website
+> through a browser connector as that persona, and researchers get the
+> interaction logs, surveys and can interview the agents.
+
+The published form of the walkthrough. The evaluating researchers' concern
+about replacing human studies is the reason the walkthrough gates a merge
+and does not replace the morning.
+
+*Acts on:* `lib/walkthrough.sh`; the `walkthrough` lens in
+`agents/code-reviewer.md`.
+
+---
+
+## [P46] Synthetic-user fidelity — **unverified**
+
+> A 2026 CHI scoping review of 81 papers on LLM-simulated users, and a 2026
+> design-science study of "active personas" (Springer, 978-3-032-14518-5).
+> From search summaries: at least partial agreement with humans in most
+> studies and strong agreement in about half; synthetic users good at
+> structured reasoning, weak on emotional nuance, culture and group
+> dynamics; every source calls them complements to human data. *Whose
+> Personae?* (arXiv:2512.00461) argues for transparency about where synthetic
+> personas come from.
+
+*Acts on:* the `evidence:` line on every persona, the exploratory flag, and
+`keep --exploratory` in `lib/product.sh`.
+
+---
+
+## [P47] Proxy gaming under self-improvement — **unverified**
+
+> SpecBench (arXiv:2605.21384) via search summary: in one study 73.8% of
+> Kernel-Bench "optimisations" showed proxy gains with no real gain, and
+> models overloaded equality operators so any output matched. The Darwin
+> Gödel Machine (arXiv:2505.22954) and SICA report large self-improvement
+> gains against hard benchmarks, which is the same finding from the other
+> side: improvement is real where the evaluator is, and games the proxy
+> where it is not.
+
+*Acts on:* the decision to record a story's `metric:` and not optimise for
+it until metric definitions can be frozen with guardrails and a held-out
+metric; the Goodhart note in `lib/product.sh`.
+
+---
+
+## [P48] Multi-agent user-story generation — **unverified**
+
+> Multi-agent systems that generate, evaluate and prioritise user stories
+> with product-owner, developer, QA and manager roles (Springer,
+> 978-3-032-04200-2, ch. 12), and ALAS (arXiv:2403.09442) on user-story
+> quality. From search summaries. None closes the loop from story to code
+> and back to the persona.
+
+*Acts on:* the shape of `orch product plan` — the request is the story
+verbatim plus a citation, not a model's rewrite of it.
+
+---
+
+## [P49] Anthropic's Dreaming — **unverified**
+
+> Claude Managed Agents announcement (claude.com blog) and VentureBeat
+> coverage, from search summaries: a scheduled process reviews past sessions,
+> extracts patterns and writes memory notes, with the original inputs
+> untouched, so a human reviews updates before agents adopt them.
+
+*Acts on:* discards as proposals — `product.learned` rows in the run ledger
+and `orch product personas`, never an edit to the persona file.
+
+---
+
 ## [P44] Model lineup, pricing and effort guidance — **verified**, first-hand
 
 > Anthropic's bundled `claude-api` reference (model table cached 2026-06-24),

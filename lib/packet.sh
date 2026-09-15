@@ -26,6 +26,8 @@ ORCH_PACKET_SOURCED=1
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/readback.sh"
 # shellcheck source=holdout.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/holdout.sh"
+# shellcheck source=walkthrough.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/walkthrough.sh"
 
 _packet_h() { printf '\n== %s ==\n\n' "$1"; }
 
@@ -38,6 +40,15 @@ packet_render() {  # packet_render <feature>
 
   printf 'APPROVAL PACKET — %s at %s\n' "$feature" "$(printf '%s' "$head" | cut -c1-12)"
   printf 'Read in order. The diff is last because everything above it was checked by hash or by a command.\n'
+
+  # The product layer leads with the persona: whether the person this was
+  # built for could do the thing, before what was asked and long before the
+  # diff. Absent when no story asked for this feature.
+  if walkthrough_required "$feature"; then
+    _packet_h "0. the walkthrough — story $(product_feature_story "$feature"), as $(product_feature_persona "$feature")"
+    walkthrough_render "$feature"
+    findings_current "$feature" | jq -r 'select(.raised_by=="walkthrough" and .status!="ignored") | "  \(.id)  [\(.severity)] \(.status)  \(.claim)"' | grep . || true
+  fi
 
   _packet_h "1. what was asked (request.md, frozen at feature start)"
   cat "$dir/request.md" 2>/dev/null || printf '(no request.md)\n'
