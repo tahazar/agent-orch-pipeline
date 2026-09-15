@@ -52,7 +52,7 @@ baseline_path() { printf '%s/baseline.json' "$(orch_feature_dir "$1")"; }
 # --------------------------------------------------------------------------
 
 report_feature_json() {  # report_feature_json <feature>
-  local feature="$1" led usage uptake yield base rung wall gates roleuse words dlines
+  local feature="$1" led usage uptake yield base rung wall gates roleuse words dlines sensors
   led="$(ledger_read "$feature")"
   rung="$(escalate_rung "$feature")"
   usage="$(ledger_feature_usage "$feature")"
@@ -72,6 +72,12 @@ report_feature_json() {  # report_feature_json <feature>
     dlines=''
   fi
   uptake="$(findings_uptake "$feature")"
+  sensors="$(printf '%s' "$led" | jq -s -c '
+    {diff_coverage: ([.[] | select(type=="object" and .event=="sensor.diff_coverage")] | if length==0 then null else .[-1] | {pct, lines, unmeasured: (.unmeasured|length), at_sha} end),
+     mutation:      ([.[] | select(type=="object" and .event=="sensor.mutation")]      | if length==0 then null else .[-1] | {pct, scope, from, at_sha} end),
+     statement_moved: ([.[] | select(type=="object" and .event=="statement.moved")] | length),
+     oracle_moved:    ([.[] | select(type=="object" and .event=="oracle.moved")] | length),
+     axioms_open:     0}' 2>/dev/null || printf 'null')"
   yield="$(findings_reviewer_yield "$feature")"
   base="$(cat "$(baseline_path "$feature")" 2>/dev/null)"
   [ -n "$base" ] || base='null'
@@ -107,6 +113,7 @@ report_feature_json() {  # report_feature_json <feature>
     --argjson uptake "${uptake:-{\}}" \
     --argjson reviewers "${yield:-[]}" \
     --argjson gates "${gates:-null}" \
+    --argjson sensors "${sensors:-null}" \
     --argjson baseline "$base" \
     --argjson escalations "$(printf '%s' "$led" | jq -s -c '[.[] | select(type=="object" and .event=="escalation") | {rung, reason, ts}]' 2>/dev/null || printf '[]')" \
     --argjson bestofn "$(printf '%s' "$led" | jq -s -c '[.[] | select(type=="object" and .event=="bestofn.selected") | {winner, reason, eligible, archived, ranking}]' 2>/dev/null || printf '[]')" \
@@ -182,6 +189,18 @@ report_render() {  # report_render <feature|--all>
     | if ($d|length)==0 then "  never ran — if it stays that way after 20 features, delete rung 4 and say so in the README"
       else "  resolved: \([$d[]|select(.event=="diagnose.resolved")]|length), inconclusive: \([$d[]|select(.event=="diagnose.inconclusive")]|length)"
       end'
+
+  printf '\nsensors — line coverage says a line ran; mutation score says a test would notice if it were wrong\n'
+  printf '%s' "$rows" | grep -v '^$' | jq -s -r '
+    .[] | "  \(.feature): "
+    + (if .sensors.diff_coverage == null then "diff coverage —"
+       else "diff coverage \(.sensors.diff_coverage.pct // "—")% of \(.sensors.diff_coverage.lines) lines"
+            + (if .sensors.diff_coverage.unmeasured > 0 then " (\(.sensors.diff_coverage.unmeasured) file(s) unmeasured)" else "" end) end)
+    + " · "
+    + (if .sensors.mutation == null then "mutation —"
+       else "mutation \(.sensors.mutation.pct // "—")% (\(.sensors.mutation.scope))" end)
+    + (if .sensors.statement_moved > 0 then " · statement moved ×\(.sensors.statement_moved)" else "" end)
+    + (if .sensors.oracle_moved > 0 then " · oracle moved ×\(.sensors.oracle_moved)" else "" end)'
 
   printf '\ncoordination overhead — v1 baselines to beat: 28%% of tokens, 36 words per diff line\n'
   printf '%s' "$rows" | grep -v '^$' | jq -s -r '

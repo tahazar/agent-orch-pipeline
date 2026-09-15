@@ -363,8 +363,12 @@ Sinking conditions, stated up front:
    `contract-compiles` gate is not: the tech-lead writes no source, so
    compilable stubs would have to come from the developer's first attested
    step, and that ordering is not yet designed.
-4. `diff-coverage` and `mutation` extractors for the runners this repo's users
-   actually have; report lines first, gates once the numbers look sane.
+4. ~~`diff-coverage` and `mutation` extractors~~ **Built.** `lib/sensors.sh`:
+   diff coverage from lcov (coverage.py, istanbul, cargo-llvm-cov, gcov2lcov
+   all write it), mutation from Stryker, cargo-mutants, or the last number an
+   attested run printed. Report lines by default; `ORCH_T_DIFF_COV` and
+   `ORCH_T_MUTATION` make them gates. What they trust is stated in the file's
+   header: the reports come from tools the developer runs.
 5. The refactor pass, trigger and exit.
 6. ~~`spec-coverage`~~ **built**; the read-back and the approval packet are not.
 7. Holdout, only once the mutation and refactor numbers say the visible

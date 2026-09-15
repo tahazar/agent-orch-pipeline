@@ -381,6 +381,10 @@ written by an agent that has seen the implementation typically has high
 coverage and asserts little — and that is the suite `quick` and `standard`
 produce by construction.
 
+**Status: built.** `lib/sensors.sh`, `orch sensor coverage|mutation`; report
+lines until `ORCH_T_DIFF_COV` / `ORCH_T_MUTATION` are set. Suite:
+`test/sensors.test.sh`.
+
 **Mechanism:** mutation score on the files the diff touches, as an attested
 number [P42]. Reported at every tier, gated at `standard` and above, and a
 ranking axis for best-of-N. CPU, not tokens; the per-tool extractor is the

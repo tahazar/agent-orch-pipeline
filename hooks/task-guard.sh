@@ -30,6 +30,7 @@ export ORCH_HOME ORCH_PROG
 . "$ORCH_HOME/lib/escalate.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/spec.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
 
@@ -143,6 +144,14 @@ If it is already green, it is green at a sha older than HEAD — run it again."
     if declare -f oracle_check >/dev/null 2>&1; then
       green_sha="$(evidence_latest "$feature" tests | jq -r '.git_sha // ""')"
       msg="$(oracle_check "$feature" "${green_sha:-HEAD}" 2>&1)" || block "the oracle moved" "$msg"
+    fi
+    # Sensors with a threshold set are gates; the rest are report lines.
+    if declare -f sensor_gate >/dev/null 2>&1; then
+      msg="$(sensor_gate "$feature" "${green_sha:-$(orch_head_sha)}" 2>&1)" || block "a sensor is below its threshold" \
+"$msg
+
+Thresholds are ORCH_T_DIFF_COV and ORCH_T_MUTATION. Unset, a sensor is a
+report line; set, it is this gate."
     fi
     # No new escape hatches. Each increase against the base is a blocking
     # finding raised by `axioms`; an open one holds the gate, a disputed one

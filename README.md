@@ -290,6 +290,21 @@ orch axioms F001-csv-parser            # exit 1 on any new escape hatch
 orch spec coverage F001-csv-parser     # which oracle tests cite each R-id
 ```
 
+Two sensors read numbers the gates cannot compute from git alone. Both are
+report lines until you set a threshold, and gates after:
+
+```bash
+orch run --feature F001-csv-parser --label coverage -- npm test -- --coverage
+orch sensor coverage F001-csv-parser   # of the executable lines the diff touched, how many ran
+orch sensor mutation F001-csv-parser   # from a Stryker or cargo-mutants report, or an attested run's score
+export ORCH_T_DIFF_COV=100 ORCH_T_MUTATION=80   # now they hold the green gate
+```
+
+Line coverage says a line ran. Mutation score says a test would notice if it
+were wrong. A suite with the first and not the second exercises the code and
+asserts nothing about it, which is the suite an agent writes once it has seen
+the implementation.
+
 ## Watching, and stepping in
 
 ```bash
@@ -365,7 +380,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-637 assertions across thirteen suites. No Claude session, no API key, no network.
+666 assertions across fourteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -391,6 +406,7 @@ lib/
   findings.sh     review findings       candidates.sh best-of-N
   statement.sh    frozen statement, frozen oracle
   axioms.sh       escape hatches        spec.sh       requirement coverage
+  sensors.sh      diff coverage, mutation score
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

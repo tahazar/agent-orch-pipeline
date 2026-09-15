@@ -66,6 +66,9 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch oracle freeze <F> [--sha S]     hash the test tree; the tests that pass must be these
   orch oracle check <F> [--sha S]      exit 7 ORACLE_MOVED if the test tree differs
 
+  orch sensor coverage <F> [--lcov F]  diff coverage from an lcov report; a ledger reading
+  orch sensor mutation <F> [--from T]  mutation score from stryker, cargo-mutants, or an attested run
+  orch sensor show <F>                 the latest reading of each sensor
   orch axioms <F> [--base B]           new escape hatches in the diff; exit 1 if any
   orch spec coverage <F>               which oracle tests cite each requirement id
 
@@ -553,6 +556,31 @@ be compared against what you actually said.
         cat "$(evidence_path "$f")" 2>/dev/null | jq -c '.'
         ;;
       *) die "evidence: expected verify or show" ;;
+    esac
+    ;;
+
+  sensor)
+    . "$ORCH_HOME/lib/sensors.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'sensor: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      coverage)
+        r="$(sensor_coverage "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"diff coverage: \(.pct // "—")% of \(.lines) changed executable lines at \(.sha[0:12])"
+          + (if (.unmeasured|length) > 0 then "\n  unmeasured (no test imported them): " + (.unmeasured|join(", ")) else "" end)
+          + (if (.uncovered|length) > 0 then "\n  uncovered: " + (.uncovered|join(", ")) else "" end)'
+        ;;
+      mutation)
+        r="$(sensor_mutation "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"mutation score: \(.pct // "—")% (\(.from), scope \(.scope)" + (if .total != null then ", \(.killed)/\(.total) killed" else "" end) + ") at \(.sha[0:12])"'
+        ;;
+      show)
+        for s in diff_coverage mutation; do
+          r="$(sensor_latest "$f" "$s")"
+          [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: .event, at_sha, pct, ts}' || printf '{"sensor":"sensor.%s","reading":null}\n' "$s"
+        done
+        ;;
+      *) die "sensor: expected coverage, mutation, or show" ;;
     esac
     ;;
 
