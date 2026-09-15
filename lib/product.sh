@@ -358,8 +358,11 @@ Keep it anyway with --exploratory, or observe the persona first and re-freeze."
 # product_iterate <F> --note T — amend the request and re-freeze. The red
 # phase is void by construction; the crew re-reads the request.
 product_iterate() {
-  local f="$1" note; shift
-  note="$(while [ "$#" -gt 0 ]; do case "$1" in --note) printf '%s' "${2-}"; break ;; esac; shift; done)"
+  local f="$1" note=''; shift
+  # A plain scan, not `$(while ...)`: bash 3.2 does not see the function's
+  # positional parameters inside a command substitution, and the note came
+  # back empty-but-present on macOS.
+  while [ "$#" -gt 0 ]; do case "$1" in --note) note="${2-}"; [ "$#" -gt 1 ] && shift ;; esac; shift; done
   [ -n "$note" ] || die "product iterate: --note is required — what should be different tomorrow?"
   [ -r "$(orch_feature_dir "$f")/request.md" ] || die "product iterate: $f has no request.md"
   printf '\n## Morning note (%s)\n\n%s\n' "$(now_iso | cut -c1-10)" "$note" >> "$(orch_feature_dir "$f")/request.md"
@@ -373,8 +376,8 @@ product_iterate() {
 # persona. The reason is required because it is the only part of a discard
 # with any information in it.
 product_discard() {
-  local f="$1" why row; shift
-  why="$(while [ "$#" -gt 0 ]; do case "$1" in --why) printf '%s' "${2-}"; break ;; esac; shift; done)"
+  local f="$1" why='' row; shift
+  while [ "$#" -gt 0 ]; do case "$1" in --why) why="${2-}"; [ "$#" -gt 1 ] && shift ;; esac; shift; done
   [ -n "$why" ] || die "product discard: --why is required — a discard with no reason teaches the persona nothing"
   row="$(_product_last "$f" product.planned)"
   ORCH_LEDGER_FEATURE="$f" ledger_append product.discarded why "$why"
