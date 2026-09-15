@@ -37,6 +37,7 @@ ORCH_REFACTOR_SOURCED=1
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/escalate.sh"
 
 : "${ORCH_REFACTOR:=trigger}"          # always | never | trigger
+: "${ORCH_REFACTOR_LAND:=ff}"          # ff: fast-forward the feature branch | branch: leave it on orch/<F>/kept
 : "${ORCH_T_REFACTOR_LINES:=200}"      # feature diff lines that trigger a pass at standard
 : "${ORCH_T_COMPLEXITY:=}"             # attested `complexity` number; empty = not a trigger
 : "${ORCH_T_DUPLICATION:=}"            # attested `duplication` number; empty = not a trigger
@@ -120,6 +121,10 @@ $msg"
   pre="$(orch_head_sha)"
   base="$(git -C "$ORCH_REPO" merge-base "$(escalate_base_branch)" "$pre" 2>/dev/null || escalate_base_branch)"
   pre_lines="$(_refactor_diff_lines "$base" "$pre")"
+  # A pass on code the feature did not write (upkeep) has no feature diff to
+  # be measured against; the budget is then the size of the files named in
+  # the request, which is what "no larger than what was there" means.
+  [ "${pre_lines:-0}" -gt 0 ] || pre_lines="${ORCH_REFACTOR_BUDGET_LINES:-$(git -C "$ORCH_REPO" ls-files | while IFS= read -r p; do grep -q -- "$p" "$(orch_feature_dir "$feature")/request.md" 2>/dev/null && wc -l < "$ORCH_REPO/$p"; done | awk '{s+=$1} END {print s+0}')}"
   for m in $ORCH_REFACTOR_METRICS; do
     v="$(_refactor_metric "$ORCH_REPO" "$feature" "$m")"
     [ -n "$v" ] && metrics="$(printf '%s' "$metrics" | jq -c --arg m "$m" --arg v "$v" '.[$m]=($v|tonumber)')"
@@ -158,7 +163,7 @@ $(printf '%s' "$metrics" | jq -r 'to_entries[] | "- \(.key) attested again and n
 Commit, attest, then tell the director:  orch refactor finish $feature
 EOM
   ORCH_LEDGER_FEATURE="$feature" ledger_append refactor.started \
-    pre_sha "$pre" base_sha "$base" pre_diff_lines:raw "$pre_lines" metrics:raw "$metrics" worktree "$wt" branch "$br"
+    pre_sha "$pre" base_sha "$base" pre_diff_lines:raw "$pre_lines" metrics:raw "$metrics" worktree "$wt" branch "$br" land "$ORCH_REFACTOR_LAND"
   printf 'refactor pass for %s started at %s\n  worktree %s\n  exit: tests green, oracle unchanged, no new axioms, diff <= %s lines%s\n' \
     "$feature" "$(printf '%s' "$pre" | cut -c1-12)" "$wt" "$pre_lines" \
     "$(printf '%s' "$metrics" | jq -r 'if length==0 then "" else ", " + (to_entries | map("\(.key) <= \(.value)") | join(", ")) end')"
@@ -171,7 +176,7 @@ EOM
 # discards it; either way the worktree is removed and the verdict is on the
 # ledger with every number it rested on.
 refactor_finish() {
-  local feature="$1" wt br row pre base pre_lines metrics post post_lines reason='' m pre_v post_v n_ax msg cur after
+  local feature="$1" wt br row pre base pre_lines metrics post post_lines reason='' m pre_v post_v n_ax msg cur after landed
   wt="$(refactor_root "$feature")"; br="$(refactor_branch "$feature")"
   row="$(_refactor_last "$feature" refactor.started)"
   [ -n "$row" ] && [ -d "$wt" ] || die "refactor finish: no pass underway for $feature (orch refactor start)"
@@ -220,23 +225,31 @@ refactor_finish() {
     return 1
   fi
 
-  # Keep: advance the feature branch to the refactor head, fast-forward only.
-  # The after-metrics live in the worktree's evidence; read them before it goes.
+  # Keep. The after-metrics live in the worktree's evidence; read them before it goes.
   after="$(for m in $(printf '%s' "$metrics" | jq -r 'keys[]'); do
              printf '{"%s": %s}\n' "$m" "$(_refactor_metric "$wt" "$feature" "$m")"
            done | jq -s -c 'add // {}')"
-  cur="$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-  if [ "$(git -C "$ORCH_REPO" rev-parse HEAD)" = "$pre" ]; then
-    git -C "$ORCH_REPO" merge -q --ff-only "$post" >/dev/null 2>&1 \
-      || die "refactor finish: could not fast-forward $cur to $post — the branch moved during the pass"
+  landed=''
+  if [ "$(printf '%s' "$row" | jq -r '.land // "ff"')" = branch ]; then
+    # N passes from one base cannot all fast-forward; each lands on its own
+    # branch and a human picks. The worktree goes; the branch stays.
+    landed="orch/$feature/kept"
+    git -C "$ORCH_REPO" branch -f "$landed" "$post" >/dev/null 2>&1 || die "refactor finish: could not create $landed"
   else
-    die "refactor finish: the feature branch moved during the pass (HEAD is not $pre); nothing was kept"
+    cur="$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ "$(git -C "$ORCH_REPO" rev-parse HEAD)" = "$pre" ]; then
+      git -C "$ORCH_REPO" merge -q --ff-only "$post" >/dev/null 2>&1 \
+        || die "refactor finish: could not fast-forward $cur to $post — the branch moved during the pass"
+    else
+      die "refactor finish: the feature branch moved during the pass (HEAD is not $pre); nothing was kept"
+    fi
   fi
   git -C "$ORCH_REPO" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
   git -C "$ORCH_REPO" branch -D "$br" >/dev/null 2>&1 || true
   ORCH_LEDGER_FEATURE="$feature" ledger_append refactor.kept \
     pre_sha "$pre" post_sha "$post" pre_diff_lines:raw "$pre_lines" post_diff_lines:raw "$post_lines" \
-    metrics_before:raw "$metrics" metrics_after:raw "${after:-{\}}"
-  printf 'refactor pass for %s KEPT: %s -> %s (%s lines changed)\n' \
-    "$feature" "$(printf '%s' "$pre" | cut -c1-12)" "$(printf '%s' "$post" | cut -c1-12)" "$post_lines"
+    metrics_before:raw "$metrics" metrics_after:raw "${after:-{\}}" landed "$landed"
+  printf 'refactor pass for %s KEPT: %s -> %s (%s lines changed)%s\n' \
+    "$feature" "$(printf '%s' "$pre" | cut -c1-12)" "$(printf '%s' "$post" | cut -c1-12)" "$post_lines" \
+    "${landed:+ on branch $landed}"
 }

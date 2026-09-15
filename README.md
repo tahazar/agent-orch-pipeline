@@ -57,6 +57,26 @@ against, whether the role definitions resolved, whether your sessions share a
 permission mode, and whether cross-session messaging can actually reach them.
 Start here whenever something behaves strangely.
 
+## Layers
+
+Not every repository wants all of this. A repo names the layers it uses in
+`.claude/orch.json`; each depends only on the one below, and a command from a
+layer that is off refuses with one line saying so.
+
+| layer | what it is | needs |
+|---|---|---|
+| `floor` | attested evidence, frozen statement and oracle, escape-hatch count, sensors, the packet | git, jq, a test command. Always on |
+| `crew` | tiers, blind roles, reviewers, auditor, refactor pass, read-back, holdout | the `claude` CLI |
+| `upkeep` | a repo-wide census, overnight refactor passes, a morning to keep or discard them | the `claude` CLI |
+| `product` | personas, stories, the walkthrough, the night | not built yet |
+
+```bash
+orch init --profile library    # floor, crew          — the default when there is no file
+orch init --profile service    # floor, crew, upkeep
+orch init --profile product    # everything
+orch layers                    # what this repo has on; orch doctor says what each needs
+```
+
 ## Kickoff — the director drives
 
 For a whole design, one command starts the run:
@@ -311,6 +331,33 @@ were wrong. A suite with the first and not the second exercises the code and
 asserts nothing about it, which is the suite an agent writes once it has seen
 the implementation.
 
+## Upkeep
+
+The codebase improves while you sleep, on the same terms as everything else:
+nothing is kept on a model's say-so.
+
+```bash
+orch upkeep scan               # the census: escape hatches, tests older than their source,
+                               # churn on size, uncovered lines, TODOs — ranked, no model call
+ORCH_TEST_CMD='npm test' orch upkeep night --top 3
+                               # one refactor pass per file, each on a fresh developer in its
+                               # own worktree, the existing suite frozen as the oracle
+orch upkeep morning            # what held, with the numbers
+orch upkeep keep F903-upkeep-src-parser-py       # merge it into the base
+orch upkeep discard F904-upkeep-src-legacy-py --why "not worth the churn"
+```
+
+A pass lands on a branch, never on your checkout, and only if the refactor
+exit held: tests green and clean at its head, oracle unchanged, no new escape
+hatch, the diff no larger than the file was, any attested metric no worse. A
+nightly re-run does not plan a file twice while its pass is open. An attested
+per-file metric (`orch run --feature _orch --label upkeep-metrics -- <tool
+printing "score path" lines>`) is read into the census when present.
+
+What is not here yet: maintenance driven by production errors and latency. It
+needs telemetry orch cannot assume, and it must read attested aggregates,
+never raw logs.
+
 ## The read-back and the holdout
 
 Two more things borrowed from how the FLT proof was checked. Both are optional.
@@ -435,7 +482,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-775 assertions across sixteen suites. No Claude session, no API key, no network.
+820 assertions across seventeen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -466,6 +513,8 @@ lib/
   packet.sh       the approval packet: statement first, diff last
   readback.sh     what the tests literally assert, written blind
   holdout.sh      the part of the oracle the developer never sees
+  layers.sh       which layers a repository has on
+  upkeep.sh       the census, the night, the morning
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

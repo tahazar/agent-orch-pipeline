@@ -37,7 +37,8 @@ usage() {
 orch — adaptive orchestration on Claude Code's native coordination primitives.
 
   orch doctor                          check the §1 operational constraints
-  orch init                            print the environment two sessions must share
+  orch init [--profile P]              print the shared environment; write the layers for a profile
+  orch layers                          which layers this repository has on
   orch roster                          live sessions, via `claude agents --json`
 
   orch kickoff --request <file|text>   freeze the run request; the director drives
@@ -100,6 +101,11 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch refactor check <F>              should the refactor pass run? (rung, diff size, metrics)
   orch refactor start <F>              worktree + fresh developer, design only; records the exit numbers
   orch refactor finish <F>             keep (fast-forward) or discard, mechanically
+
+  orch upkeep scan [--top N]           repo-wide census: hatches, stale tests, churn, uncovered — ranked
+  orch upkeep plan [--top N]           the top files become upkeep features
+  orch upkeep night [--top N]          a refactor pass per file, in parallel, landing on branches
+  orch upkeep morning                  what held; then  orch upkeep keep|discard <F>
 
   orch candidates start <F> [-n N]     rung 3: N isolated worktrees
   orch candidates collect <F> [gates…] gather each candidate's own attestations
@@ -169,8 +175,21 @@ case "$cmd" in
     doctor_run
     ;;
 
+  layers)
+    . "$ORCH_HOME/lib/layers.sh"
+    printf 'layers on: %s\n' "$(layers_enabled)"
+    [ -r "$(layers_path)" ] && printf 'from %s\n' "$(layers_path)" || printf '(no %s — the default: floor and crew)\n' "$(layers_path)"
+    ;;
+
   init)
     . "$ORCH_HOME/lib/substrate/base.sh"
+    . "$ORCH_HOME/lib/layers.sh"
+    prof="$(opt profile '' "$@")"
+    if [ -n "$prof" ]; then
+      ls="$(layers_profile "$prof")" || die "init: --profile must be library, service, or product (got '$prof')"
+      layers_write $ls
+      printf 'wrote %s: layers %s\n\n' "$(layers_path)" "$ls"
+    fi
     cat <<EOF
 Every session in an orch team must share these, or they coordinate with nobody:
 
@@ -304,6 +323,7 @@ be compared against what you actually said.
     ;;
 
   spawn)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     . "$ORCH_HOME/lib/tier.sh"
     role="$(need "${1:-}" 'spawn: needs a role')"; shift 2>/dev/null || true
@@ -331,6 +351,7 @@ be compared against what you actually said.
     # request, spawn the director with decompose-and-drive orders, done —
     # every further spawn, gate and merge is the director working its role,
     # and the human is needed exactly where the gates say so.
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     req="$(opt request '' "$@")"
     [ -n "$req" ] || die 'kickoff: --request is required — a run needs to know what it is building.
@@ -365,6 +386,7 @@ be compared against what you actually said.
     # adversarial reviewer is supposed to have, and a session-long auditor
     # slowly becomes a colleague. Everything it needs to know is in the ledger
     # and the artifacts; everything it should not know is in the crew's heads.
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     f="$(need "${1:-}" 'audit: needs a feature')"; shift 2>/dev/null || true
     orch_valid_feature "$f" || die "audit: invalid feature '$f'"
@@ -391,6 +413,7 @@ be compared against what you actually said.
     ;;
 
   team)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require crew
     . "$ORCH_HOME/lib/launcher/base.sh"
     . "$ORCH_HOME/lib/tier.sh"
     . "$ORCH_HOME/lib/substrate/base.sh"
@@ -838,6 +861,22 @@ be compared against what you actually said.
     esac
     ;;
 
+  upkeep)
+    . "$ORCH_HOME/lib/layers.sh"; layer_require upkeep
+    . "$ORCH_HOME/lib/upkeep.sh"
+    ORCH_ROOT_BIN="$0"; export ORCH_ROOT_BIN
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      scan)    upkeep_render "$(upkeep_scan "$@")" ;;
+      plan)    upkeep_plan "$@" ;;
+      night)   upkeep_night "$@" ;;
+      morning) upkeep_morning ;;
+      keep)    upkeep_keep "$(need "${1:-}" 'upkeep keep: needs a feature')" ;;
+      discard) f="$(need "${1:-}" 'upkeep discard: needs a feature')"; shift; upkeep_discard "$f" "$(opt why '' "$@")" ;;
+      *) die "upkeep: expected scan, plan, night, morning, keep, or discard" ;;
+    esac
+    ;;
+
   refactor)
     . "$ORCH_HOME/lib/refactor.sh"
     sub="${1:-}"; shift 2>/dev/null || true
@@ -853,7 +892,7 @@ be compared against what you actually said.
         . "$ORCH_HOME/lib/tier.sh"
         ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$(tier_effort "$(escalate_rung "$f")")" \
           ORCH_PROMPT="You are the refactor pass for $f — a fresh developer whose only job is design. Begin now: read docs/features/$f/REFACTOR.md in this worktree, then requirements.md, contract.md and the whole suite; improve the code without changing what it does; attest build and tests here with \`orch run\`; commit; then run \`orch refactor finish $f\`. The exit is mechanical and there is no repair loop." \
-          launcher_spawn developer "$(launcher_session_name developer refactor)" "$(refactor_root "$f")" \
+          launcher_spawn developer "$(launcher_session_name developer "refactor-$f")" "$(refactor_root "$f")" \
             $(launcher_env developer "$f") "ORCH_PHASE=refactor" || true
         ;;
       finish) refactor_finish "$f" ;;
