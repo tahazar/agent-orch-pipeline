@@ -62,7 +62,7 @@ holdout_run() {
   local feature="$1"; shift
   [ "${1:-}" = "--" ] && shift
   [ "$#" -gt 0 ] || die "holdout run: no command given"
-  local repo sha wt br f rc rung
+  local repo sha wt br f rc rung msg
   orch_valid_feature "$feature" || die "holdout run: invalid feature '$feature'"
   holdout_has "$feature" || die "holdout run: no holdout files for $feature (orch holdout add)"
   repo="${ORCH_REPO:-$(orch_repo_root)}"
@@ -72,7 +72,8 @@ holdout_run() {
   wt="$(orch_state_dir)/worktrees/$feature/holdout"; br="orch/$feature/holdout"
   [ ! -e "$wt" ] || git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
   git -C "$repo" branch -D "$br" >/dev/null 2>&1 || true
-  git -C "$repo" worktree add -q -b "$br" "$wt" "$sha" || die "holdout run: could not create worktree"
+  git -C "$repo" worktree prune >/dev/null 2>&1
+  msg="$(git -C "$repo" worktree add -f -q -b "$br" "$wt" "$sha" 2>&1)" || die "holdout run: could not create worktree: $msg"
   for f in $(holdout_list "$feature"); do
     mkdir -p "$wt/$(dirname "$f")"
     cp "$(holdout_dir "$feature")/$f" "$wt/$f"

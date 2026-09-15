@@ -302,8 +302,9 @@ be compared against what you actually said.
           note "worktree for $f already exists at $wt"
         else
           mkdir -p "$(dirname "$wt")"
+          git -C "$main" worktree prune >/dev/null 2>&1
           if git -C "$main" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
-            git -C "$main" worktree add -q "$wt" "$br" || die "feature start: could not add worktree for $br"
+            git -C "$main" worktree add -f -q "$wt" "$br" || die "feature start: could not add worktree for $br"
           else
             git -C "$main" worktree add -q -b "$br" "$wt" "$base" 2>/dev/null \
               || git -C "$main" worktree add -q -b "$br" "$wt" HEAD \

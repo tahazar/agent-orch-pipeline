@@ -38,6 +38,9 @@ WORK=''
 setup_repo() {  # setup_repo [name]
   MAIN=''; unset ORCH_FEATURE
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/orch-test-${1:-x}.XXXXXX")"
+  # Physical path: on macOS $TMPDIR is under /var, a symlink to /private/var,
+  # and orch resolves paths with `cd -P`. The tests compare strings.
+  WORK="$(cd -P "$WORK" && pwd)"
   # Pin the session id so ledger rows are deterministic. Without this the suite
   # behaves differently depending on whether it happens to be running inside a
   # Claude session, which is exactly the kind of environment dependence a test

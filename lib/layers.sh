@@ -50,9 +50,11 @@ layer_enabled() { case " $(layers_enabled) " in *" $1 "*) return 0 ;; *) return 
 
 # layer_require <layer> — die with the one line, unless on.
 layer_require() {
+  local prof
   layer_enabled "$1" && return 0
+  case "$1" in upkeep) prof=service ;; product) prof=product ;; *) prof=library ;; esac
   die "the \`$1\` layer is off for this repository. Enable it in $(layers_path):
-  orch init --profile $(case "$1" in upkeep) printf service ;; product) printf product ;; *) printf library ;; esac)
+  orch init --profile $prof
 or add \"$1\" to \"layers\" by hand. Layers on now: $(layers_enabled)"
 }
 

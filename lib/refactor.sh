@@ -132,7 +132,8 @@ $msg"
 
   mkdir -p "$(dirname "$wt")"
   git -C "$ORCH_REPO" branch -D "$br" >/dev/null 2>&1 || true
-  git -C "$ORCH_REPO" worktree add -q -b "$br" "$wt" "$pre" || die "refactor start: could not create worktree $wt"
+  git -C "$ORCH_REPO" worktree prune >/dev/null 2>&1
+  msg="$(git -C "$ORCH_REPO" worktree add -f -q -b "$br" "$wt" "$pre" 2>&1)" || die "refactor start: could not create worktree $wt: $msg"
   mkdir -p "$wt/docs/features/$feature"
   cat > "$wt/docs/features/$feature/REFACTOR.md" <<EOM
 # Refactor pass — $feature

@@ -33,15 +33,17 @@ merge_landed() {  # merge_landed <feature> -> 0 if landed
 
 # The serialised part: runs under the lock.
 _merge_land_locked() {  # _merge_land_locked <feature> <feature-head> <base>
-  local feature="$1" head="$2" base="$3" main wt title rc old new cur
+  local feature="$1" head="$2" base="$3" main wt title rc old new cur msg
   main="$(orch_main_repo)"; wt="$(merge_wt)"
-  [ ! -e "$wt" ] || git -C "$main" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+  [ ! -e "$wt" ] || git -C "$main" worktree remove --force --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+  git -C "$main" worktree prune >/dev/null 2>&1
   old="$(git -C "$main" rev-parse "$base" 2>/dev/null)" || die "merge: no base branch '$base'"
-  git -C "$main" worktree add -q --detach "$wt" "$old" || die "merge: could not create the integration worktree"
+  msg="$(git -C "$main" worktree add -f -q --detach "$wt" "$old" 2>&1)" || die "merge: could not create the integration worktree: $msg"
 
   title="$(head -1 "$(orch_feature_dir "$feature")/request.md" 2>/dev/null | cut -c1-72)"
   if ! git -C "$wt" merge -q --squash "$head" >/dev/null 2>&1; then
-    git -C "$main" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+    git -C "$main" worktree remove --force --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+    git -C "$main" worktree prune >/dev/null 2>&1
     ORCH_LEDGER_FEATURE="$feature" ledger_append merge.rejected reason conflict base_sha "$old" head "$head"
     die "merge: $feature conflicts with $base at $(printf '%s' "$old" | cut -c1-12). Merge $base into feature/$feature, resolve, re-run the floor, re-approve."
   fi

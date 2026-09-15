@@ -167,8 +167,15 @@ orch_realpath() {
     return 0
   fi
   d="$(dirname "$p")"; b="$(basename "$p")"
+  # The directory may not exist yet (a first write into .github/workflows/).
+  # Resolve the longest ancestor that does, and carry the rest along.
+  local rest=''
+  while [ ! -d "$d" ] && [ "$d" != "/" ] && [ "$d" != "." ]; do
+    rest="$(basename "$d")${rest:+/$rest}"
+    d="$(dirname "$d")"
+  done
   d="$( cd -P "$d" 2>/dev/null && pwd )"
-  if [ -n "$d" ]; then printf '%s/%s' "$d" "$b"; else printf '%s' "$p"; fi
+  if [ -n "$d" ]; then printf '%s%s/%s' "$d" "${rest:+/$rest}" "$b"; else printf '%s' "$p"; fi
 }
 
 orch_require_repo() {
