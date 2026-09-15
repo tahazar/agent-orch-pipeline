@@ -17,6 +17,7 @@ printf 'ledger, evidence, blocking gates\n\n'
 
 export ORCH_FEATURE=F002-gates
 "$ORCH" feature start F002-gates --request "test fixture" >/dev/null 2>&1
+enter_feature F002-gates >/dev/null 2>&1 || true
 
 hook() {  # hook <script> <json>
   printf '%s' "$2" | "$ORCH_ROOT/hooks/$1"

@@ -29,6 +29,7 @@ MERGE='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command
 
 export ORCH_FEATURE=F080-rb
 "$ORCH" feature start F080-rb --request "mean" >/dev/null 2>&1
+enter_feature F080-rb >/dev/null 2>&1 || true
 printf -- '- R1 mean of a list\n' > docs/features/F080-rb/requirements.md
 printf 'def mean(xs: list[float]) -> float: ...\n' > docs/features/F080-rb/contract.md
 "$ORCH" tier recommend F080-rb strict --why x >/dev/null 2>&1 && "$ORCH" tier confirm F080-rb >/dev/null 2>&1
@@ -101,17 +102,17 @@ chk_rc 1 "$rc" "the developer cannot designate a holdout"
 out="$(ORCH_ROLE=test-engineer "$ORCH" holdout add F080-rb test/test_edge.py 2>&1)"; rc=$?
 chk_rc 0 "$rc" "the test-engineer can"
 [ ! -e test/test_edge.py ]; chk $? "the file leaves the tree"
-[ -r .orch/holdout/F080-rb/test/test_edge.py ]; chk $? "and lives under .orch/holdout"
+[ -r "$MAIN/.orch/holdout/F080-rb/test/test_edge.py" ]; chk $? "and lives under .orch/holdout"
 git add -A && git commit -q -m "held out"
 [ "$("$ORCH" holdout list F080-rb)" = "test/test_edge.py" ]; chk $? "and is listed"
-out="$(rd "$ORCH_REPO/.orch/holdout/F080-rb/test/test_edge.py" developer)"; rc=$?
+out="$(rd "$MAIN/.orch/holdout/F080-rb/test/test_edge.py" developer)"; rc=$?
 chk_rc 2 "$rc" "the developer cannot read it"
-out="$(ws "$ORCH_REPO/.orch/holdout/F080-rb/test/test_edge.py" developer)"; rc=$?
+out="$(ws "$MAIN/.orch/holdout/F080-rb/test/test_edge.py" developer)"; rc=$?
 chk_rc 2 "$rc" "or write it"
 out="$(ORCH_ROLE=developer "$ORCH" run --feature F080-rb --label peek -- cat .orch/holdout/F080-rb/test/test_edge.py 2>&1)"; rc=$?
 chk_rc 1 "$rc" "or run a command that names it"
 contains "$out" "not shown" "and is told why"
-out="$(rd "$ORCH_REPO/.orch/holdout/F080-rb/test/test_edge.py" auditor)"; rc=$?
+out="$(rd "$MAIN/.orch/holdout/F080-rb/test/test_edge.py" auditor)"; rc=$?
 chk_rc 0 "$rc" "the auditor can read it"
 
 printf '\nthe holdout runs clean at HEAD and gates the merge:\n'
@@ -128,7 +129,7 @@ out="$("$ORCH" holdout run F080-rb -- sh -c 'test -f test/test_edge.py && test -
 chk_rc 0 "$rc" "the holdout file is present in the clean worktree alongside the oracle"
 contains "$out" "PASSED" "and passed"
 [ "$(git rev-parse HEAD)" = "$HEAD0" ]; chk $? "the feature branch did not move"
-[ ! -e .orch/worktrees/F080-rb/holdout ]; chk $? "and the worktree is gone"
+[ ! -e "$(sub_wt F080-rb holdout)" ]; chk $? "and the worktree is gone"
 [ "$("$ORCH" gate read F080-rb holdout | jq -r .state)" = met ]; chk $? "the holdout gate is met"
 jq -e -s --arg s "$HEAD0" 'any(.[]; .label=="holdout" and .exit_code==0 and .git_sha==$s)' docs/features/F080-rb/evidence.jsonl >/dev/null
 chk $? "with evidence attributed to the approved sha"

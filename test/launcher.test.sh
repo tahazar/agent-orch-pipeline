@@ -34,6 +34,7 @@ out="$(ORCH_LAUNCHER=nonesuch "$ORCH" team status 2>&1)"; rc=$?
 
 printf '\nno crew before a confirmed tier:\n'
 "$ORCH" feature start F030-spawn --request "test fixture" >/dev/null 2>&1
+enter_feature F030-spawn >/dev/null 2>&1 || true
 out="$("$ORCH" team start --feature F030-spawn 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "a crew cannot be spawned before a tier is confirmed"
 contains "$out" "no confirmed tier" "and the refusal says what is missing"
@@ -48,6 +49,7 @@ not_contains "$out" "test-engineer" "and not a test-engineer"
 
 printf '\nthe crew grows with the rung:\n'
 "$ORCH" feature start F031-strict --request "test fixture" --tier strict >/dev/null 2>&1
+enter_feature F031-strict >/dev/null 2>&1 || true
 out="$("$ORCH" team start --feature F031-strict 2>&1)"
 contains "$out" "test-engineer" "strict adds the test-engineer"
 contains "$out" "code-reviewer" "and the code-reviewer"
@@ -136,7 +138,7 @@ contains "$out" "ORCH_LENS=reproduction" "and a non-opus lens comes back as itse
 not_contains "$out" "--model" "without inheriting the opus override"
 
 printf '\na launcher that starts nothing does not claim it did:\n'
-LEDGER="$ORCH_REPO/docs/features/_orch/ledger.jsonl"
+LEDGER="${MAIN:-$ORCH_REPO}/docs/features/_orch/ledger.jsonl"
 jq -e -s 'any(.[]; .event=="agent.printed")' "$LEDGER" >/dev/null
 chk $? "print records agent.printed"
 jq -e -s 'all(.[]; .event != "agent.spawned")' "$LEDGER" >/dev/null
@@ -176,14 +178,14 @@ printf '\nkickoff — one command, and the director drives:\n'
 out="$("$ORCH" kickoff 2>&1)"; rc=$?
 [ "$rc" != "0" ]; chk $? "kickoff without a request is refused"
 out="$("$ORCH" kickoff --request "Build a CSV importer with three views" 2>&1)"
-[ -r "$ORCH_REPO/docs/features/_orch/request.md" ]
+[ -r "${MAIN:-$ORCH_REPO}/docs/features/_orch/request.md" ]
 chk $? "the run request is frozen at docs/features/_orch/request.md"
-contains "$out" "Decompose it into features" "the director wakes with decompose-and-drive orders"
+contains "$out" "Decompose it into a graph of features" "the director wakes with decompose-and-drive orders"
 contains "$out" "orch tier confirm" "and the human is told exactly which gates are theirs"
 contains "$out" "orch approve" "including the merge"
-grep -q "Build a CSV importer" "$ORCH_REPO/docs/features/_orch/request.md"
+grep -q "Build a CSV importer" "${MAIN:-$ORCH_REPO}/docs/features/_orch/request.md"
 chk $? "and the frozen request is the one that was given"
-jq -e -s 'any(.[]; .event=="kickoff")' "$ORCH_REPO/docs/features/_orch/ledger.jsonl" >/dev/null
+jq -e -s 'any(.[]; .event=="kickoff")' "${MAIN:-$ORCH_REPO}/docs/features/_orch/ledger.jsonl" >/dev/null
 chk $? "kickoff is a ledger event"
 
 # Orders carry human text; an apostrophe must not detonate the command line.

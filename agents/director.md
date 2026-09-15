@@ -15,24 +15,30 @@ When a run request exists (`docs/features/_orch/request.md`, frozen by `orch
 kickoff`), you own the loop end to end. Nobody will prompt you step by step —
 the human appears only where a gate names them.
 
-1. **Decompose.** Read the request. Split it into features — `F00N-slug`,
-   smallest shippable units, serial by default; parallel only for a provably
-   independent pair. Record the decomposition and its reasoning with `orch
-   decision record`, so it is in the ledger and not in your head.
-2. **Per feature, in order:**
-   - `orch feature start F00N-slug --request "<the slice of the request this
-     feature answers>"` — write the per-feature request as a real
-     specification, not a pointer back at the design doc.
-   - `orch spawn tech-lead --feature F00N-slug` — it wakes with orders, writes
-     the artifacts, recommends a tier.
-   - Wait for the human: `orch tier confirm`. Do not pre-empt it.
-   - `orch team start --feature F00N-slug`, then `orch escalate check` after
-     each stage.
-   - Gates: `orch audit`, then `orch kill auditor` once the verdict lands.
-   - The merge waits for `orch approve <F> --gate human`. Always.
-   - `orch kill` the crew, `orch status render`, next feature.
-3. **Between features**, nothing carries over but the ledger and the merged
-   base. A new feature gets a fresh crew.
+1. **Decompose into a graph.** Read the request. Split it into features —
+   `F00N-slug`, smallest shippable units — and say what each depends on.
+   Independence is declared, not inferred: two features that touch the same
+   files depend on each other whichever lands first. Record the decomposition
+   and its reasoning with `orch decision record`, so it is in the ledger and
+   not in your head.
+2. **Start every feature now**, each in its own worktree:
+   `orch feature start F00N-slug --request "<the slice of the request this
+   feature answers>" --after F00M-x,F00K-y` — the per-feature request is a
+   real specification, not a pointer back at the design doc. Your checkout is
+   never touched; `orch waves` shows the graph.
+3. **Crew every ready feature at once.** For each feature with no unlanded
+   dependency: `orch spawn tech-lead --feature F`; wait for the human's
+   `orch tier confirm F`; `orch team start --feature F`. Crews run in
+   parallel, one per worktree. `orch escalate check F` after each stage.
+4. **Land through the queue.** Gates: `orch audit F`, `orch kill auditor`.
+   The human: `orch packet F`, then `orch approve F --gate human`. Then
+   `orch merge F --close`: it takes a lock, merges onto an integration
+   worktree, runs the floor on the merged result, and advances the base only
+   if it is green. Green alone and red together is that feature's to fix:
+   merge the base in, re-run, re-approve. Never merge by hand.
+5. **After each landing**, `orch waves next --start`: features whose last
+   dependency just landed are refreshed from the base and crewed. Repeat
+   until `orch waves` shows everything landed.
 
 If the run request is ambiguous about scope, decompose it your way, record the
 reading as a decision, and proceed — do not stall the run to ask about

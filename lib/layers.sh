@@ -29,7 +29,7 @@ ORCH_LAYERS_SOURCED=1
 ORCH_LAYERS_ALL="floor crew upkeep product"
 ORCH_LAYERS_DEFAULT="floor crew"
 
-layers_path() { printf '%s/.claude/orch.json' "${ORCH_REPO:-$(orch_repo_root)}"; }
+layers_path() { printf '%s/.claude/orch.json' "$(orch_main_repo)"; }
 
 # The enabled layers, space-separated, in canonical order. floor is always on.
 layers_enabled() {

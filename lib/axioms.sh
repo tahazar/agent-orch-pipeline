@@ -32,7 +32,7 @@ ORCH_AXIOMS_SOURCED=1
 # One extended regex per line. A repo overrides the whole list with
 # .claude/orch-axioms.txt (or ORCH_AXIOMS_FILE); comments and blanks ignored.
 axioms_patterns() {
-  local f="${ORCH_AXIOMS_FILE:-${ORCH_REPO:-$(orch_repo_root)}/.claude/orch-axioms.txt}"
+  local f="${ORCH_AXIOMS_FILE:-$(orch_main_repo)/.claude/orch-axioms.txt}"
   if [ -r "$f" ]; then grep -v '^[[:space:]]*#' "$f" | grep .; return 0; fi
   cat <<'PATTERNS'
 \.(only|skip)\(

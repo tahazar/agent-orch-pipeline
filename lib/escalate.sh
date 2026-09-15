@@ -65,7 +65,7 @@ escalate_base_branch() {
   local b
   if [ -n "${ORCH_BASE_BRANCH:-}" ]; then printf '%s' "$ORCH_BASE_BRANCH"; return 0; fi
   b="$(git -C "${ORCH_REPO:-.}" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
-  [ -n "$b" ] || b="$(head -1 "${ORCH_REPO:-.}/.orch/base-branch" 2>/dev/null | tr -d ' \t\r\n')"
+  [ -n "$b" ] || b="$(head -1 "$(orch_state_dir)/base-branch" 2>/dev/null | tr -d ' \t\r\n')"
   if [ -z "$b" ]; then
     for b in main master trunk; do
       git -C "${ORCH_REPO:-.}" rev-parse --verify --quiet "$b" >/dev/null 2>&1 && break

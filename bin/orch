@@ -42,7 +42,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch roster                          live sessions, via `claude agents --json`
 
   orch kickoff --request <file|text>   freeze the run request; the director drives
-  orch feature start <F00N> --request <file|text> [--tier T] [--branch B]
+  orch feature start <F00N> --request <file|text> [--tier T] [--after F,G] [--here]
   orch feature current                 which feature hooks will attribute events to
 
   orch tier recommend <F> <tier> --why WHY   the tech-lead proposes
@@ -82,6 +82,10 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch readback start <F>              a blind session: what do the tests literally assert?
   orch readback record <F> [file|-]    the read-back, bound to the oracle sha
   orch readback files <F>              the oracle files the read-back may read
+  orch merge <F> [--close]             land F on the base: gates, lock, integration run, advance
+  orch merge status                    approved and waiting, landed, rejected
+  orch waves                           the feature graph and each feature's state
+  orch waves next [--start]            ready features: refresh from base; start their crews
   orch packet <F>                      what to read before approving: statement first, diff last
   orch approve <F> --gate <gate>       human approval, from any terminal
 
@@ -166,6 +170,22 @@ case "$cmd" in ''|-h|--help|help) usage; exit 0 ;; esac
 
 require_cmd git
 require_cmd jq
+
+# Which feature this invocation is about, from `--feature F` or a positional
+# feature id, so the repo resolves to that feature's worktree before any
+# command runs. A crew session has ORCH_FEATURE from its launcher already;
+# this is for the human's and the director's terminal in the main checkout.
+_prev=''
+{
+  for _a in "$@"; do
+    if [ "$_prev" = "--feature" ] || orch_valid_feature "$_a" 2>/dev/null; then
+      case "$_a" in F[0-9][0-9][0-9]*) export ORCH_FEATURE="$_a"; break ;; esac
+    fi
+    case "$_a" in --feature=F*) export ORCH_FEATURE="${_a#--feature=}"; break ;; esac
+    _prev="$_a"
+  done
+  unset _prev _a
+}
 orch_require_repo
 
 case "$cmd" in
@@ -249,45 +269,65 @@ be compared against what you actually said.
   orch feature start $f --request docs/specs/thing.md
   orch feature start $f --request \"Parse the CSV export, tolerate BOM headers\""
 
-        mkdir -p "$(orch_feature_dir "$f")"
+        after="$(opt after '' "$@")"
+        for dep in $(printf '%s' "$after" | tr ',' ' '); do
+          orch_valid_feature "$dep" || die "feature start: --after names '$dep', which is not a feature id"
+          [ "$dep" != "$f" ] || die "feature start: a feature cannot depend on itself"
+        done
         orch_set_current_feature "$f"
         base="$(opt base "$(escalate_base_branch)" "$@")"
-        printf '%s\n' "$base" > "$ORCH_REPO/.orch/base-branch"
+        printf '%s\n' "$base" > "$(orch_state_dir)/base-branch"
+        [ -r "$req" ] && reqsrc="$req" || reqsrc="(inline)"
 
-        # Freeze the request. A file is copied rather than referenced: the
-        # point of freezing is that editing your spec mid-run cannot silently
-        # change what the crew was asked for.
-        if [ -r "$req" ]; then
-          cp "$req" "$(orch_feature_dir "$f")/request.md"
-          reqsrc="$req"
-        else
-          printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"
-          reqsrc="(inline)"
-        fi
-
-        # A branch per feature, so the merge the director is told to make has
-        # something to merge, and so an abandoned feature is one branch to
-        # delete rather than a working tree to unpick.
+        # A branch per feature, in a worktree per feature. Features run in
+        # parallel, so nothing checks out in the main checkout: the feature's
+        # crew works in .orch/worktrees/<F>/main and the human's checkout is
+        # left alone. --here keeps the old behaviour (check out in place) for
+        # a repo that wants one feature at a time.
         # feature/<F>, not orch/<F>: best-of-N candidates take refs under
         # orch/<F>/cN, and git cannot hold both a branch named orch/<F> and a
         # directory of refs beneath it.
         br="$(opt branch "feature/$f" "$@")"
-        if [ "$(git -C "$ORCH_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
-          note "already on $br"
-        elif git -C "$ORCH_REPO" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
-          git -C "$ORCH_REPO" checkout -q "$br" || die "feature start: could not switch to $br"
+        main="$(orch_main_repo)"
+        wt="$main/.orch/worktrees/$f/main"
+        if has_flag here "$@"; then
+          if [ "$(git -C "$main" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$br" ]; then
+            note "already on $br"
+          elif git -C "$main" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+            git -C "$main" checkout -q "$br" || die "feature start: could not switch to $br"
+          else
+            git -C "$main" checkout -q -b "$br" || die "feature start: could not create $br"
+          fi
+        elif [ -d "$wt" ]; then
+          note "worktree for $f already exists at $wt"
         else
-          git -C "$ORCH_REPO" checkout -q -b "$br" || die "feature start: could not create $br"
+          mkdir -p "$(dirname "$wt")"
+          if git -C "$main" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
+            git -C "$main" worktree add -q "$wt" "$br" || die "feature start: could not add worktree for $br"
+          else
+            git -C "$main" worktree add -q -b "$br" "$wt" "$base" 2>/dev/null \
+              || git -C "$main" worktree add -q -b "$br" "$wt" HEAD \
+              || die "feature start: could not create $br"
+          fi
         fi
+        # The feature's artifacts live in its tree from here on. Freeze the
+        # request there: a file is copied rather than referenced, because the
+        # point of freezing is that editing your spec mid-run cannot silently
+        # change what the crew was asked for.
+        export ORCH_FEATURE="$f"; ORCH_REPO="$(orch_repo_root)"; export ORCH_REPO
+        mkdir -p "$(orch_feature_dir "$f")"
+        if [ -r "$req" ]; then cp "$req" "$(orch_feature_dir "$f")/request.md"
+        else printf '%s\n' "$req" > "$(orch_feature_dir "$f")/request.md"; fi
 
         ORCH_LEDGER_FEATURE="$f" ledger_append feature.started \
-          base "$base" branch "$br" request "$reqsrc" rung:raw 0
-        printf '%s started on branch %s (base %s).\n' "$f" "$br" "$base"
+          base "$base" branch "$br" request "$reqsrc" rung:raw 0 after "$after"
+        printf '%s started on branch %s (base %s)%s.\n' "$f" "$br" "$base" "$([ -d "$wt" ] && printf ' in %s' "$wt")"
         # "Frozen" is a hash in the ledger, not a promise: every gate
         # recomputes it, and a request.md edited afterwards is STATEMENT_MOVED.
         . "$ORCH_HOME/lib/statement.sh"
         statement_freeze "$f" "feature start" >/dev/null
         printf 'request frozen at %s\n' "$(orch_feature_dir "$f")/request.md"
+        [ -z "$after" ] || printf 'after %s — its crew starts when they have landed:  orch waves next\n' "$after"
         if [ -n "$t" ]; then
           tier_confirm "$f" "$t"
         else
@@ -439,6 +479,9 @@ be compared against what you actually said.
           tier_is_confirmed "$f" || die "team start: $f has no confirmed tier, so there is no crew to size.
   orch tier recommend $f <$(printf '%s' "$ORCH_TIERS" | tr ' ' '|')> --why \"...\"
   orch tier confirm $f"
+          . "$ORCH_HOME/lib/waves.sh"
+          blk="$(waves_blockers "$f")"
+          [ -z "$blk" ] || die "team start: $f waits for $blk to land first (orch waves)"
           rung="$(escalate_rung "$f")"
           crew="$(tier_crew "$rung")"
           [ -n "$crew" ] || die "team start: $f is at rung 5 — it is yours, not a crew's"
@@ -748,6 +791,24 @@ be compared against what you actually said.
     esac
     ;;
 
+  merge)
+    . "$ORCH_HOME/lib/merge.sh"
+    case "${1:-}" in
+      status|'') merge_status ;;
+      *) f="$1"; shift; merge_land "$f" "$@" ;;
+    esac
+    ;;
+
+  waves)
+    . "$ORCH_HOME/lib/waves.sh"
+    ORCH_ROOT_BIN="$0"; export ORCH_ROOT_BIN
+    case "${1:-}" in
+      next) waves_next "${2:-}" ;;
+      '')   waves_render ;;
+      *) die "waves: expected nothing or next" ;;
+    esac
+    ;;
+
   packet)
     . "$ORCH_HOME/lib/packet.sh"
     packet_render "$(need "${1:-}" 'packet: needs a feature')"
@@ -979,7 +1040,7 @@ be compared against what you actually said.
       printf 'sessions:\n'
       substrate_roster | jq -r 'if length==0 then "  (none)" else .[] | "  \(.name // .sessionId)  pid=\(.pid)  \(.cwd)" end'
       printf '\nfeatures:\n'
-      for f in $(ls "$ORCH_REPO/docs/features" 2>/dev/null); do
+      for f in $(orch_features_list); do
         orch_valid_feature "$f" || continue
         [ "$f" = "_orch" ] && continue
         printf '  %-22s rung %s (%s)  signals: %s\n' "$f" "$(escalate_rung "$f")" \

@@ -18,6 +18,7 @@ printf 'sensors\n\n'
 hook() { printf '%s' "$2" | "$ORCH_ROOT/hooks/$1"; }
 export ORCH_FEATURE=F060-sens
 "$ORCH" feature start F060-sens --request "mean" --tier standard >/dev/null 2>&1
+enter_feature F060-sens >/dev/null 2>&1 || true
 # Tool output is not source. A repo that commits its coverage report has a
 # different problem; this one ignores it, as real ones do.
 printf 'coverage/\nreports/\nmutants.out/\n' > .gitignore

@@ -36,6 +36,7 @@ not_contains() {
 
 WORK=''
 setup_repo() {  # setup_repo [name]
+  MAIN=''; unset ORCH_FEATURE
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/orch-test-${1:-x}.XXXXXX")"
   # Pin the session id so ledger rows are deterministic. Without this the suite
   # behaves differently depending on whether it happens to be running inside a
@@ -59,6 +60,30 @@ setup_repo() {  # setup_repo [name]
   git add -A && git commit -q -m "initial"
   git branch -M main
   PATH="$ORCH_ROOT/bin:$PATH"; export PATH
+}
+
+# Features live in worktrees. After `orch feature start F`, a test that
+# commits, edits paths under $ORCH_REPO, or asserts on HEAD must be in F's
+# tree — this moves it there and points ORCH_REPO at it. MAIN keeps the
+# checkout for the few things that are the repository's, not the feature's.
+MAIN=''
+enter_feature() {  # enter_feature <feature>
+  [ -n "$MAIN" ] || MAIN="$ORCH_REPO"
+  export ORCH_REPO="$MAIN/.orch/worktrees/$1/main"
+  export CLAUDE_PROJECT_DIR="$ORCH_REPO"
+  export ORCH_FEATURE="$1"
+  [ -d "$ORCH_REPO" ] || { printf 'enter_feature: no worktree for %s\n' "$1" >&2; return 1; }
+  cd "$ORCH_REPO" || return 1
+}
+# A feature's artifact directory, wherever its tree is.
+fdir() { printf '%s/.orch/worktrees/%s/main/docs/features/%s' "${MAIN:-$ORCH_REPO}" "$1" "$1"; }
+sub_wt() { printf '%s/.orch/worktrees/%s/%s' "${MAIN:-$ORCH_REPO}" "$1" "$2"; }
+
+leave_feature() {
+  [ -n "$MAIN" ] || return 0
+  export ORCH_REPO="$MAIN" CLAUDE_PROJECT_DIR="$MAIN"
+  unset ORCH_FEATURE
+  cd "$MAIN" || return 1
 }
 
 teardown_repo() {

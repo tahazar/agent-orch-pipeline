@@ -48,10 +48,14 @@ path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.not
 # and an unresolved comparison would leave `rel` absolute, match no ALLOW glob,
 # and block a legitimate write on one platform only.
 repo="$(orch_realpath "$(orch_repo_root)")"
+main="$(orch_realpath "$(orch_main_repo)")"
 abs="$(orch_realpath "$path")"
 rel="$abs"
+# Relative to this tree first; otherwise to the main checkout, which is where
+# the holdout and every candidate and refactor worktree live.
 case "$abs" in
   "$repo"/*) rel="${abs#"$repo"/}" ;;
+  "$main"/*) rel="${abs#"$main"/}" ;;
 esac
 
 # A path inside a candidate worktree is judged by its worktree-relative form.

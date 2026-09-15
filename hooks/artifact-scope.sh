@@ -55,11 +55,13 @@ path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.pat
 # feature it was aimed at, and the scope decision is about the aim.
 repo_raw="$(orch_repo_root)"
 repo="$(orch_realpath "$repo_raw")"
+main="$(orch_realpath "$(orch_main_repo)")"
 abs="$(orch_realpath "$path")"
 rel="$abs"
 case "$abs" in
   "$repo"/*)     rel="${abs#"$repo"/}" ;;
   "$repo_raw"/*) rel="${abs#"$repo_raw"/}" ;;
+  "$main"/*)     rel="${abs#"$main"/}" ;;
 esac
 
 # The holdout is the part of the oracle the developer is not shown.

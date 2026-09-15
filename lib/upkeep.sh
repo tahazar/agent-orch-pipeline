@@ -109,19 +109,17 @@ upkeep_render() {  # upkeep_render <json>
 }
 
 _upkeep_next_id() {  # the next free F9NN id, so upkeep features sort after product ones
-  local n=900 root
-  root="$ORCH_REPO/docs/features"
-  while [ -d "$root/F$n"* ] 2>/dev/null || ls -d "$root/F$n"-* >/dev/null 2>&1; do n=$((n + 1)); done
+  local n=900
+  while orch_features_list | grep -q "^F$n-"; do n=$((n + 1)); done
   printf 'F%s' "$n"
 }
+_upkeep_features() { orch_features_list | grep -- '-upkeep-'; }
 
 # The open upkeep feature for a file, if one exists: planned or started, and
 # neither kept nor discarded. A nightly re-run must not plan a file twice.
 _upkeep_open_for() {  # _upkeep_open_for <file> -> feature id or ''
-  local d id
-  for d in "$ORCH_REPO"/docs/features/F9[0-9][0-9]-upkeep-*; do
-    [ -d "$d" ] || continue
-    id="$(basename "$d")"
+  local id
+  for id in $(_upkeep_features); do
     ledger_read "$id" | jq -e -s --arg f "$1" '
       any(.[]; .event=="upkeep.planned" and .file==$f)
       and (any(.[]; .event=="upkeep.kept" or .event=="upkeep.discarded" or .event=="refactor.discarded") | not)' >/dev/null 2>&1 \
@@ -142,9 +140,6 @@ upkeep_plan() {
     if id="$(_upkeep_open_for "$f")"; then printf '%s  %s\n' "$id" "$f"; continue; fi
     slug="upkeep-$(printf '%s' "$f" | tr '/.' '--' | tr -c 'A-Za-z0-9-\n' '-' | cut -c1-40)"
     id="$(_upkeep_next_id)-$slug"
-    # Every upkeep feature branches from the base, not from the previous
-    # feature's branch.
-    git -C "$ORCH_REPO" checkout -q "$base" 2>/dev/null || true
     req="$(printf '%s' "$row" | jq -r '
       "Upkeep of \(.file). Behaviour must not change; the existing test suite is the oracle and is frozen.\n\nWhat the census found:\n"
       + (if .hatches > 0 then "- \(.hatches) escape hatch(es) (skip/ignore/disable) — remove them or make the code not need them\n" else "" end)
@@ -172,7 +167,7 @@ upkeep_night() {
     || die "upkeep night: the tree is dirty — commit or stash first; every pass starts from a clean base"
   upkeep_plan "$@" | while IFS='  ' read -r id f; do
     [ -n "$id" ] || continue
-    # feature start checked out feature/<id>; each pass branches from there.
+    # feature start made a worktree for <id>; --feature resolves to it.
     "$ORCH_ROOT_BIN" run --feature "$id" --label build -- sh -c "${ORCH_BUILD_CMD:-true}" >/dev/null 2>&1 \
       || { ORCH_LEDGER_FEATURE="$id" ledger_append upkeep.skipped reason "build red on the base"; warn "upkeep: $id — build red on the base, skipped"; continue; }
     "$ORCH_ROOT_BIN" run --feature "$id" --label tests -- sh -c "$ORCH_TEST_CMD" >/dev/null 2>&1 \
@@ -181,18 +176,14 @@ upkeep_night() {
     ORCH_REFACTOR_LAND=branch "$ORCH_ROOT_BIN" refactor start "$id" 2>&1 | sed 's/^/  /'
     ORCH_LEDGER_FEATURE="$id" ledger_append upkeep.started file "$f"
   done
-  # Leave the checkout where it was: the passes live in their worktrees.
-  [ -n "$cur" ] && git -C "$ORCH_REPO" checkout -q "$cur" 2>/dev/null || true
   printf '\nupkeep night started. In the morning:  orch upkeep morning\n'
 }
 
 # upkeep_morning — every upkeep feature and where its pass stands.
 upkeep_morning() {
-  local d id st row
+  local id st row
   printf 'upkeep morning\n\n'
-  for d in "$ORCH_REPO"/docs/features/F9[0-9][0-9]-upkeep-*; do
-    [ -d "$d" ] || continue
-    id="$(basename "$d")"
+  for id in $(_upkeep_features); do
     row="$(ledger_read "$id" | jq -c -s '[.[] | select(type=="object" and (.event | startswith("refactor.") or startswith("upkeep.")))] | last // {}' 2>/dev/null)"
     st="$(printf '%s' "$row" | jq -r '.event // "none"')"
     case "$st" in
@@ -217,8 +208,8 @@ upkeep_keep() {
   br="$(ledger_read "$id" | jq -r -s '[.[] | select(type=="object" and .event=="refactor.kept")] | last | .landed // ""' 2>/dev/null)"
   [ -n "$br" ] || die "upkeep keep: $id has no kept pass on a branch"
   base="$(escalate_base_branch)"
-  git -C "$ORCH_REPO" checkout -q "$base" || die "upkeep keep: could not check out $base"
-  git -C "$ORCH_REPO" merge -q --no-ff -m "upkeep: $id" "$br" || die "upkeep keep: merge of $br into $base failed — resolve by hand"
+  git -C "$(orch_main_repo)" checkout -q "$base" || die "upkeep keep: could not check out $base"
+  git -C "$(orch_main_repo)" merge -q --no-ff -m "upkeep: $id" "$br" || die "upkeep keep: merge of $br into $base failed — resolve by hand"
   git -C "$ORCH_REPO" branch -D "$br" >/dev/null 2>&1 || true
   ORCH_LEDGER_FEATURE="$id" ledger_append upkeep.kept branch "$br" into "$base"
   printf 'kept %s into %s\n' "$id" "$base"

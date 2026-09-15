@@ -12,6 +12,7 @@ trap teardown_repo EXIT
 printf 'generated status\n\n'
 
 "$ORCH" feature start F040-status --request "test fixture" --tier standard >/dev/null 2>&1
+enter_feature F040-status >/dev/null 2>&1 || true
 ST="$ORCH_REPO/docs/features/F040-status/status.md"
 
 printf 'the rendering is derived:\n'
@@ -58,6 +59,7 @@ chk $? "both decisions are ledger rows, greppable forever"
 
 printf '\nempty sections say so:\n'
 "$ORCH" feature start F041-bare --request "test fixture" >/dev/null 2>&1
+enter_feature F041-bare >/dev/null 2>&1 || true
 out="$("$ORCH" status show F041-bare)"
 contains "$out" "no gate has been set" "an empty gates section names itself"
 contains "$out" "nothing attested yet" "so does an empty evidence section"

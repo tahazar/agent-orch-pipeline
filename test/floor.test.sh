@@ -29,6 +29,7 @@ MERGE='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command
 printf 'the statement is frozen by hash:\n'
 export ORCH_FEATURE=F040-stmt
 "$ORCH" feature start F040-stmt --request "add a mean function" >/dev/null 2>&1
+enter_feature F040-stmt >/dev/null 2>&1 || true
 L="$ORCH_REPO/docs/features/F040-stmt/ledger.jsonl"
 jq -e -s 'any(.[]; .event=="statement.frozen" and (.files | has("request.md")))' "$L" >/dev/null
 chk $? "feature start freezes request.md"
@@ -81,6 +82,7 @@ chk_rc 0 "$rc" "the developer still writes its own artifacts"
 printf '\nthe oracle is the test tree at the red-phase sha:\n'
 export ORCH_FEATURE=F041-oracle
 "$ORCH" feature start F041-oracle --request "mean" --tier strict >/dev/null 2>&1
+enter_feature F041-oracle >/dev/null 2>&1 || true
 L="$ORCH_REPO/docs/features/F041-oracle/ledger.jsonl"
 printf 'from src.mean import mean\n\n\ndef test_mean():\n    assert mean([1, 2, 3]) == 2\n' > test/test_mean.py
 git add -A && git commit -q -m "oracle: mean"

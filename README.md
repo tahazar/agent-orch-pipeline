@@ -156,14 +156,16 @@ The crew writes tests, implements against them, and reviews the diff. Review
 findings are delivered to the developer verbatim, and every test result has to
 come from a real command — see [Evidence](#evidence).
 
-**5. Approve the merge.** Nothing reaches your base branch without this, and it
-binds to the exact commit you approved. Read the packet first — the request,
-whether the statement and the oracle held, which tests cite each requirement,
-any escape hatch in the diff, the sensors, the evidence, and the diff last:
+**5. Approve, then land.** Nothing reaches your base branch without this, and
+it binds to the exact commit you approved. Read the packet first — the
+request, whether the statement and the oracle held, which tests cite each
+requirement, any escape hatch in the diff, the sensors, the evidence, and the
+diff last:
 
 ```bash
 orch packet F001-csv-parser
 orch approve F001-csv-parser --gate human
+orch merge F001-csv-parser --close     # the queue: integration run, then the base advances
 ```
 
 You can run that from any terminal, including one with no session open. If the
@@ -196,16 +198,32 @@ orch feature start F002-typo --request "fix the typo in the README heading" --ti
 
 ## What it does to your git
 
-One branch per feature, `feature/<id>`, created when you start it. Work happens
-there; your base branch is untouched until you approve a squash-merge of the
-exact commit you reviewed.
+One branch and one worktree per feature: `feature/<id>` checked out under
+`.orch/worktrees/<id>/main`, created when you start it. Your checkout is never
+touched. Features run in parallel, each crew in its own tree, and every
+`orch` command that names a feature reads that feature's tree — its HEAD, its
+evidence, its gates — not your checkout's.
 
-Best-of-N (below) puts each candidate in its own git worktree under `.orch/`,
-so parallel attempts cannot see or overwrite each other. Exactly one is merged
-and the rest are archived with their gate results.
+```bash
+orch feature start F002-export --request "..." --after F001-csv-parser
+orch waves                       # the graph: landed, running, ready, blocked
+orch waves next --start          # crew everything whose dependencies have landed
+```
+
+Nothing reaches the base branch except through the merge queue. `orch merge
+<F>` checks the human approval at the feature's HEAD, the frozen statement and
+oracle, and the holdout if there is one; then, under a lock, squash-merges
+onto an integration worktree, runs the build and test commands on the merged
+result, and advances the base only if that is green. Two features that each
+passed alone can fail together, and when they do the base does not move.
+
+Best-of-N, the refactor pass, the holdout run and every upkeep pass each get
+their own worktree under the feature's, so parallel attempts cannot see or
+overwrite each other.
 
 Nothing rebases and nothing force-pushes — those are denied outright. A bad
-merge is reverted, not rewritten.
+merge is reverted, not rewritten. `--here` on `feature start` keeps the old
+one-feature-at-a-time behaviour of checking the branch out in place.
 
 ## When orch overrules you
 
@@ -270,6 +288,8 @@ Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
 | the contract builds before the oracle is written, and the red phase builds after | `hooks/task-guard.sh` |
 | the read-back session reads the tests and no artifact | `hooks/artifact-scope.sh` |
 | the developer never reads, writes, or runs a command naming the holdout; no merge until it passes | `hooks/artifact-scope.sh`, `hooks/write-scope.sh`, `lib/evidence.sh`, `hooks/gate-guard.sh` |
+| the base advances only through the queue, only when the merged result is green | `lib/merge.sh` |
+| a feature is not crewed until every feature it depends on has landed | `lib/waves.sh` |
 | reviewers can report, never act | `disallowedTools` |
 | candidates cannot escape their worktree | `isolation: worktree` |
 
@@ -482,7 +502,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-820 assertions across seventeen suites. No Claude session, no API key, no network.
+869 assertions across eighteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -515,6 +535,8 @@ lib/
   holdout.sh      the part of the oracle the developer never sees
   layers.sh       which layers a repository has on
   upkeep.sh       the census, the night, the morning
+  merge.sh        the merge queue: lock, integration run, advance
+  waves.sh        the feature dependency graph
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

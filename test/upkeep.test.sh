@@ -70,28 +70,27 @@ out="$("$ORCH" upkeep plan --top 1 2>&1)"; rc=$?
 chk_rc 0 "$rc" "plan runs"
 id="$(printf '%s' "$out" | awk '{print $1}' | head -1)"
 case "$id" in F9*-upkeep-src-hairy*) ok "the feature is $id — an F9xx upkeep id named for the file" ;; *) bad "unexpected feature id '$id'" ;; esac
-contains "$(cat docs/features/$id/request.md)" "3 escape hatch(es)" "the request carries the census"
-contains "$(cat docs/features/$id/request.md)" "R3 no new skip" "and requirement ids"
+contains "$(cat "$(fdir $id)/request.md")" "3 escape hatch(es)" "the request carries the census"
+contains "$(cat "$(fdir $id)/request.md")" "R3 no new skip" "and requirement ids"
 [ "$("$ORCH" tier show $id | jq -r .running)" = standard ]; chk $? "at the upkeep tier"
-git checkout -q main
 
 printf '\nnight starts one pass per file, landing on branches:\n'
 out="$(ORCH_TEST_CMD='exit 0' "$ORCH" upkeep night --top 2 2>&1)"; rc=$?
 chk_rc 0 "$rc" "night runs"
-[ "$(ls -d docs/features/F9*-upkeep-* | wc -l | tr -d ' ')" = "2" ]; chk $? "the file planned earlier is not planned again — two features, not three"
+[ "$("$ORCH" upkeep morning | grep -c "F9")" = "2" ]; chk $? "the file planned earlier is not planned again — two features, not three"
 n_started="$(printf '%s' "$out" | grep -c 'refactor pass for .* started')"
 [ "$n_started" = "2" ]; chk $? "two passes started (got $n_started)"
 n_sess="$(printf '%s' "$out" | grep -c 'ORCH_ROLE=developer')"
 [ "$n_sess" = "2" ]; chk $? "two developer sessions"
 [ "$(printf '%s' "$out" | grep -o 'developer-refactor-F9[0-9]*-[a-z-]*' | sort -u | wc -l | tr -d ' ')" = "2" ]; chk $? "with distinct names"
 [ "$(git rev-parse --abbrev-ref HEAD)" = main ]; chk $? "the checkout is left where it was"
-ids="$(ls -d docs/features/F9*-upkeep-* | xargs -n1 basename)"
-for i in $ids; do [ -d ".orch/worktrees/$i/refactor" ]; chk $? "$i has its worktree"; done
+ids="$(ls -d .orch/worktrees/F9*-upkeep-* | xargs -n1 basename)"
+for i in $ids; do [ -d "$(sub_wt $i refactor)" ]; chk $? "$i has its worktree"; done
 
 printf '\nmorning, keep, discard:\n'
 first_id="$(printf '%s\n' $ids | head -1)"; second_id="$(printf '%s\n' $ids | tail -1)"
-WT=".orch/worktrees/$first_id/refactor"
-f="$(jq -r -s '[.[] | select(.event=="upkeep.planned")] | last | .file' docs/features/$first_id/ledger.jsonl)"
+WT="$(sub_wt $first_id refactor)"
+f="$(jq -r -s '[.[] | select(.event=="upkeep.planned")] | last | .file' "$(fdir $first_id)/ledger.jsonl")"
 printf 'def a():\n    return 1\n' > "$WT/$f"
 git -C "$WT" add -A && git -C "$WT" commit -q -m "upkeep: simplify"
 ORCH_REPO="$WT" "$ORCH" run --feature "$first_id" --label build -- sh -c 'exit 0' >/dev/null 2>&1
@@ -110,10 +109,10 @@ out="$("$ORCH" upkeep keep "$first_id" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "keep merges it"
 [ "$(git rev-parse --abbrev-ref HEAD)" = main ]; chk $? "into main"
 grep -q 'return 1' "src/hairy.py" && ! grep -q 'type: ignore' src/hairy.py; chk $? "and the simplified file is on main"
-jq -e -s 'any(.[]; .event=="upkeep.kept")' docs/features/$first_id/ledger.jsonl >/dev/null; chk $? "recorded"
+jq -e -s 'any(.[]; .event=="upkeep.kept")' "$(fdir $first_id)/ledger.jsonl" >/dev/null; chk $? "recorded"
 out="$("$ORCH" upkeep discard "$second_id" --why "not worth it" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "discard records the decision"
-jq -e -s 'any(.[]; .event=="upkeep.discarded" and .why=="not worth it")' docs/features/$second_id/ledger.jsonl >/dev/null; chk $? "with the reason"
+jq -e -s 'any(.[]; .event=="upkeep.discarded" and .why=="not worth it")' "$(fdir $second_id)/ledger.jsonl" >/dev/null; chk $? "with the reason"
 out="$("$ORCH" upkeep morning 2>&1)"
 contains "$out" "done      $first_id  kept" "morning now shows both as done"
 contains "$out" "done      $second_id  discarded" ""

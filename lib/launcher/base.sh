@@ -101,8 +101,8 @@ launcher_orders() {  # launcher_orders <role> [feature] [gate]
     director)
       if [ -n "$f" ]; then
         printf 'You are the director. Feature %s is underway — read docs/features/%s/ and the ledger, then drive it per your role. Begin now.' "$f" "$f"
-      elif [ -r "${ORCH_REPO:-.}/docs/features/_orch/request.md" ]; then
-        printf 'You are the director. Read docs/features/_orch/request.md — the run request. Decompose it into features (F00N-slug each, smallest shippable units, serial by default), record the decomposition with `orch decision record`, then drive each feature per your role: `orch feature start` with a per-feature --request, `orch spawn tech-lead`, tier confirmation by the human, `orch team start --feature`, gates via `orch audit`, merge only through the human gate. Begin now.'
+      elif [ -r "$(orch_feature_dir _orch)/request.md" ]; then
+        printf 'You are the director. Read docs/features/_orch/request.md — the run request. Decompose it into a graph of features (F00N-slug each, smallest shippable units, each declaring what it depends on), record the decomposition with `orch decision record`, start every feature with `orch feature start --request ... --after ...`, then drive per your role: crew every ready feature in parallel (`orch spawn tech-lead`, the human'"'"'s `orch tier confirm`, `orch team start --feature`), gates via `orch audit`, the human'"'"'s `orch approve`, land through `orch merge`, then `orch waves next --start`. Begin now.'
       else
         printf 'You are the director. No run request is on record yet — the human starts features with `orch feature start`. When one exists, drive it per your role; check `orch team status` and the shared task list now, then stand by.'
       fi ;;

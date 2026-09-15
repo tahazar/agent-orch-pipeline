@@ -35,15 +35,7 @@ ORCH_REPORT_SOURCED=1
 # shellcheck source=findings.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/findings.sh"
 
-report_features() {
-  local root; root="$(orch_repo_root)/docs/features"
-  [ -d "$root" ] || return 0
-  ls "$root" 2>/dev/null | while IFS= read -r d; do
-    [ -d "$root/$d" ] || continue
-    [ "$d" = "_orch" ] && continue
-    orch_valid_feature "$d" && printf '%s\n' "$d"
-  done
-}
+report_features() { orch_features_list; }
 
 baseline_path() { printf '%s/baseline.json' "$(orch_feature_dir "$1")"; }
 
@@ -65,8 +57,8 @@ report_feature_json() {  # report_feature_json <feature>
   words="$(cat "$(orch_feature_dir "$feature")"/*.md 2>/dev/null | wc -w | tr -d ' ')"
   dlines="$(printf '%s' "$led" | jq -s -r '
     [.[] | select(type=="object" and .event=="feature.started")] | .[0].base // ""' 2>/dev/null)"
-  if [ -n "$dlines" ] && git -C "$ORCH_REPO" rev-parse --verify --quiet "$dlines" >/dev/null 2>&1; then
-    dlines="$(git -C "$ORCH_REPO" diff --shortstat "$dlines...HEAD" 2>/dev/null \
+  if [ -n "$dlines" ] && git -C "$(orch_feature_repo "$feature")" rev-parse --verify --quiet "$dlines" >/dev/null 2>&1; then
+    dlines="$(git -C "$(orch_feature_repo "$feature")" diff --shortstat "$dlines...HEAD" 2>/dev/null \
       | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || printf '')"
   else
     dlines=''

@@ -21,7 +21,7 @@ evidence_path() { printf '%s/evidence.jsonl' "$(orch_feature_dir "$1")"; }
 # mistaken for the main checkout's.
 _evidence_worktree() {
   local top
-  top="$(git rev-parse --show-toplevel 2>/dev/null)" || { printf ''; return 0; }
+  top="$(git -C "${ORCH_REPO:-.}" rev-parse --show-toplevel 2>/dev/null)" || { printf ''; return 0; }
   printf '%s' "$top"
 }
 
@@ -94,11 +94,15 @@ evidence_run() {
   return "$rc"
 }
 
-# The most recent evidence row for a label, or empty.
+# The most recent evidence row for a label IN THIS WORKTREE, or empty. A
+# feature's store is shared by its own tree and every candidate, refactor and
+# holdout worktree under it; a green run in one of them is not a green run in
+# another, so a row is read back only where it was made.
 evidence_latest() {  # evidence_latest <feature> <label>
   local f; f="$(evidence_path "$1")"
   [ -r "$f" ] || return 0
-  jq -c --arg l "$2" 'select(type=="object" and .label==$l)' "$f" 2>/dev/null | tail -1
+  jq -c --arg l "$2" --arg w "$(_evidence_worktree)" \
+    'select(type=="object" and .label==$l and ((.worktree // "") == $w or $w == ""))' "$f" 2>/dev/null | tail -1
 }
 
 # ---------------------------------------------------------------------------

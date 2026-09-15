@@ -18,6 +18,7 @@ printf 'the refactor pass\n\n'
 
 export ORCH_FEATURE=F070-ref
 "$ORCH" feature start F070-ref --request "mean" --tier strict >/dev/null 2>&1
+enter_feature F070-ref >/dev/null 2>&1 || true
 printf 'from src.mean import mean\n\n\ndef test_mean():  # R1\n    assert mean([2, 4]) == 3\n' > test/test_mean.py
 git add -A && git commit -q -m "oracle"
 "$ORCH" oracle freeze F070-ref >/dev/null 2>&1
@@ -37,7 +38,7 @@ green() {  # green [repo]
   ORCH_REPO="${1:-$ORCH_REPO}" "$ORCH" run --feature F070-ref --label tests -- sh -c 'exit 0' >/dev/null 2>&1
 }
 L="$ORCH_REPO/docs/features/F070-ref/ledger.jsonl"
-WT="$ORCH_REPO/.orch/worktrees/F070-ref/refactor"
+WT="$(sub_wt F070-ref refactor)"
 
 printf 'the pass starts from green or not at all:\n'
 out="$("$ORCH" refactor start F070-ref 2>&1)"; rc=$?
@@ -141,6 +142,7 @@ chk $? "with before and after on the ledger"
 printf '\nthe trigger at standard:\n'
 export ORCH_FEATURE=F071-std
 "$ORCH" feature start F071-std --request "small" --tier standard >/dev/null 2>&1
+enter_feature F071-std >/dev/null 2>&1 || true
 printf 'x = 1\n' > src/small.py && git add -A && git commit -q -m "small"
 out="$("$ORCH" refactor check F071-std 2>&1)"; rc=$?
 chk_rc 1 "$rc" "a small standard-tier diff does not trigger"

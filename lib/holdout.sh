@@ -36,7 +36,7 @@ ORCH_HOLDOUT_SOURCED=1
 # shellcheck source=substrate/base.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/substrate/base.sh"
 
-holdout_dir()  { printf '%s/.orch/holdout/%s' "${ORCH_REPO:-$(orch_repo_root)}" "$1"; }
+holdout_dir()  { printf '%s/holdout/%s' "$(orch_state_dir)" "$1"; }
 holdout_list() { ( cd "$(holdout_dir "$1")" 2>/dev/null && find . -type f | sed 's|^\./||' | sort ); }
 holdout_has()  { [ -n "$(holdout_list "$1")" ]; }
 
@@ -69,7 +69,7 @@ holdout_run() {
   sha="$(orch_head_sha)"
   evidence_verify "$feature" tests --claim pass --fresh >/dev/null 2>&1 \
     || die "holdout run: the visible suite is not attested green and clean at HEAD — the holdout runs after it, not instead of it"
-  wt="$repo/.orch/worktrees/$feature/holdout"; br="orch/$feature/holdout"
+  wt="$(orch_state_dir)/worktrees/$feature/holdout"; br="orch/$feature/holdout"
   [ ! -e "$wt" ] || git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
   git -C "$repo" branch -D "$br" >/dev/null 2>&1 || true
   git -C "$repo" worktree add -q -b "$br" "$wt" "$sha" || die "holdout run: could not create worktree"

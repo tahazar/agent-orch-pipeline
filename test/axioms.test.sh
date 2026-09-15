@@ -23,6 +23,7 @@ git add -A && git commit -q -m "a pre-existing skip"
 printf 'escape hatches are counted against the base:\n'
 export ORCH_FEATURE=F050-ax
 "$ORCH" feature start F050-ax --request "mean" --tier strict >/dev/null 2>&1
+enter_feature F050-ax >/dev/null 2>&1 || true
 out="$("$ORCH" axioms F050-ax 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a feature that changed nothing has no new hatches"
 contains "$out" "no new escape hatches" "and says so"
@@ -74,6 +75,7 @@ contains "$out" "CONFIG   .github/workflows/ci.yml" "by path"
 printf '\nrequirement coverage at the red phase:\n'
 export ORCH_FEATURE=F051-cov
 "$ORCH" feature start F051-cov --request "mean" >/dev/null 2>&1
+enter_feature F051-cov >/dev/null 2>&1 || true
 printf -- '- R1 mean of a non-empty list\n- **R2** empty list raises ValueError\n3. R3 accepts ints and floats\n' \
   > docs/features/F051-cov/requirements.md
 "$ORCH" tier recommend F051-cov strict --why "logic" >/dev/null 2>&1
@@ -108,6 +110,7 @@ chk $? "and the oracle is frozen"
 printf '\nrequirements without ids cannot be checked, and say so:\n'
 export ORCH_FEATURE=F052-noid
 "$ORCH" feature start F052-noid --request "mean" >/dev/null 2>&1
+enter_feature F052-noid >/dev/null 2>&1 || true
 printf 'the mean of a list\n' > docs/features/F052-noid/requirements.md
 "$ORCH" tier recommend F052-noid strict --why "x" >/dev/null 2>&1
 "$ORCH" tier confirm F052-noid >/dev/null 2>&1

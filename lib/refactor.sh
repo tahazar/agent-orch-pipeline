@@ -43,7 +43,7 @@ ORCH_REFACTOR_SOURCED=1
 : "${ORCH_T_DUPLICATION:=}"            # attested `duplication` number; empty = not a trigger
 ORCH_REFACTOR_METRICS="complexity duplication"
 
-refactor_root()   { printf '%s/.orch/worktrees/%s/refactor' "${ORCH_REPO:-$(orch_repo_root)}" "$1"; }
+refactor_root()   { printf '%s/worktrees/%s/refactor' "$(orch_state_dir)" "$1"; }
 refactor_branch() { printf 'orch/%s/refactor' "$1"; }
 
 _refactor_last() {  # _refactor_last <feature> <event> -> row or nothing
