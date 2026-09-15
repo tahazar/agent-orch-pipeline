@@ -305,6 +305,24 @@ were wrong. A suite with the first and not the second exercises the code and
 asserts nothing about it, which is the suite an agent writes once it has seen
 the implementation.
 
+## The refactor pass
+
+Red-green-refactor's third step is where design comes from, and it is the one
+an agent skips: it feels no duplication. So it is a separate pass, once per
+feature, between the green gate and review:
+
+```bash
+orch refactor check F001-csv-parser    # always at strict; at standard on diff size or a metric
+orch refactor start F001-csv-parser    # a fresh developer in its own worktree, design only
+orch refactor finish F001-csv-parser   # kept (fast-forward) or discarded — mechanically
+```
+
+Kept only if the tests are green and clean at the refactor head, the oracle is
+untouched, no escape hatch appeared, the refactor's diff is no larger than the
+feature's was, and every metric attested before is attested after and no
+worse. Otherwise the pre-refactor commit stands and the reason is on the
+ledger. There is no repair loop on a refactor.
+
 ## Watching, and stepping in
 
 ```bash
@@ -380,7 +398,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-666 assertions across fourteen suites. No Claude session, no API key, no network.
+717 assertions across fifteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -407,6 +425,7 @@ lib/
   statement.sh    frozen statement, frozen oracle
   axioms.sh       escape hatches        spec.sh       requirement coverage
   sensors.sh      diff coverage, mutation score
+  refactor.sh     the refactor pass: trigger, invariant, exit
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
 hooks/            the seven enforcement hooks

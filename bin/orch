@@ -90,6 +90,10 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch review scope [F]                a re-review's packet: open findings + the
                                        diff since the last verdict, nothing else
 
+  orch refactor check <F>              should the refactor pass run? (rung, diff size, metrics)
+  orch refactor start <F>              worktree + fresh developer, design only; records the exit numbers
+  orch refactor finish <F>             keep (fast-forward) or discard, mechanically
+
   orch candidates start <F> [-n N]     rung 3: N isolated worktrees
   orch candidates collect <F> [gates…] gather each candidate's own attestations
   orch candidates select <F>           mechanical selection; prints the winner
@@ -781,6 +785,29 @@ be compared against what you actually said.
     case "$sub" in
       scope) findings_review_scope "${1:-$(orch_current_feature)}" ;;
       *) die "review: expected scope" ;;
+    esac
+    ;;
+
+  refactor)
+    . "$ORCH_HOME/lib/refactor.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    f="$(need "${1:-}" 'refactor: needs a feature')"; shift 2>/dev/null || true
+    case "$sub" in
+      check)  refactor_should_run "$f" ;;
+      start)
+        refactor_start "$f"
+        # A fresh context, on purpose: the developer that wrote the code is
+        # anchored to why it wrote it that way. Same role, new session, cwd
+        # in the worktree so the platform's worktree isolation applies.
+        . "$ORCH_HOME/lib/launcher/base.sh"
+        . "$ORCH_HOME/lib/tier.sh"
+        ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$(tier_effort "$(escalate_rung "$f")")" \
+          ORCH_PROMPT="You are the refactor pass for $f — a fresh developer whose only job is design. Begin now: read docs/features/$f/REFACTOR.md in this worktree, then requirements.md, contract.md and the whole suite; improve the code without changing what it does; attest build and tests here with \`orch run\`; commit; then run \`orch refactor finish $f\`. The exit is mechanical and there is no repair loop." \
+          launcher_spawn developer "$(launcher_session_name developer refactor)" "$(refactor_root "$f")" \
+            $(launcher_env developer "$f") "ORCH_PHASE=refactor" || true
+        ;;
+      finish) refactor_finish "$f" ;;
+      *) die "refactor: expected check, start, or finish" ;;
     esac
     ;;
 

@@ -62,6 +62,15 @@ is instrumented: a pipeline whose code-reviewer had *better* precision produced
 third of the time. Disputing with a reason is a fine outcome. Quietly moving on
 is not.
 
+## When you are the refactor pass
+
+`ORCH_PHASE=refactor` and a `REFACTOR.md` in your worktree mean the feature is
+already green and your only job is design: duplication, naming, coupling,
+the shape of the abstractions. You change what the code is, not what it does.
+The exit is mechanical — tests green, oracle unchanged, no new escape hatch,
+a diff no larger than the feature's, metrics no worse — and if it fails the
+pass is discarded, not repaired. Commit, attest, `orch refactor finish`.
+
 ## When you are one of N
 
 At rung 3 you are one of several candidates, each with a different approach

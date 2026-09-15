@@ -101,6 +101,19 @@ for `quick` sets a floor, not an exemption. Do not escalate because a feature
 *feels* hard. If you believe the ladder is wrong, say so with the signal you
 disagree with; do not route around it.
 
+## The refactor pass
+
+Between the green gate and review, once per feature:
+
+    orch refactor check <feature>     # should it run — rung, diff size, metrics
+    orch refactor start <feature>     # a fresh developer, in a worktree, design only
+    ... wait for refactor.kept or refactor.discarded on the ledger ...
+
+`orch refactor finish` is the pass's own last step and it is mechanical. Kept
+means the feature branch was fast-forwarded and review sees the refactored
+code; discarded means the pre-refactor commit stands and the reason is on the
+ledger. You never repair a discarded pass; you review what stood.
+
 ## Gates, and the auditor's lifecycle
 
 The auditor is not a colleague; it is a fresh pair of eyes you hire per gate

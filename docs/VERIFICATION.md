@@ -395,7 +395,7 @@ did not demand". The design that puts both to work is in
 
 ### 10. The developer's orders invite the accretion pathology
 
-**Status: the orders are built** — design first, the suite is a specification, own tests under `test/dev/`. The refactor pass is not.
+**Status: built** — the orders (design first, the suite is a specification, own tests under `test/dev/`) and the refactor pass (`lib/refactor.sh`, `test/refactor.test.sh`).
 
 **Böckeler [P42]:** agents given a TDD workflow "kept making locally minimal
 changes around the first test", the early design hardened, and they rarely

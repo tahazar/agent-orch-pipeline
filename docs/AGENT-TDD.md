@@ -369,7 +369,11 @@ Sinking conditions, stated up front:
    attested run printed. Report lines by default; `ORCH_T_DIFF_COV` and
    `ORCH_T_MUTATION` make them gates. What they trust is stated in the file's
    header: the reports come from tools the developer runs.
-5. The refactor pass, trigger and exit.
+5. ~~The refactor pass, trigger and exit.~~ **Built.** `lib/refactor.sh`,
+   `orch refactor check|start|finish`; a fresh `developer-refactor` session in
+   its own worktree; kept by fast-forward or discarded with the numbers.
+   Complexity and duplication are attested numbers (`orch run --label
+   complexity|duplication -- <tool>`), not built-in extractors.
 6. ~~`spec-coverage`~~ **built**; the read-back and the approval packet are not.
 7. Holdout, only once the mutation and refactor numbers say the visible
    oracle is being overfit.
