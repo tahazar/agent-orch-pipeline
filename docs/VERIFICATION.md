@@ -139,6 +139,8 @@ README. They are ordered by how much trust they buy per line of shell.
 
 ### 1. The statement is not frozen
 
+**Status: built.** `lib/statement.sh`, frozen at feature start and tier confirm; `STATEMENT_MOVED` in `task-guard.sh` and `gate-guard.sh`; the write boundary in `write-scope.sh`. Suite: `test/floor.test.sh`.
+
 **FLT:** the statement is immutable once published; the solver may not touch
 it; the comparator proves the thing checked is the thing asked for.
 
@@ -162,6 +164,8 @@ describe the new one.
 Enforced by hooks; no model call. One afternoon.
 
 ### 2. The proof can edit the statement through the executor
+
+**Status: built.** Oracle tree hashed at the red phase, `ORACLE_MOVED` at the green gate and the merge; `dirty` on every evidence row, `EVIDENCE_DIRTY` on `--fresh` and at the gates; the red run must be over a committed tree. Suite: `test/floor.test.sh`.
 
 **FLT:** the prover has no path to the statement file at all.
 
@@ -192,6 +196,8 @@ it.
 Enforced by hooks over `git rev-parse`; no model call. Small.
 
 ### 3. The escape hatches are not enumerated
+
+**Status: built.** `lib/axioms.sh`, `orch axioms`; increases are blocking findings raised by `axioms`; trusted configuration denied to the developer at strict. Suite: `test/axioms.test.sh`.
 
 **FLT:** `FinalCheck.lean` lists the ways a Lean proof can lie — `sorry`,
 `axiom`, `native_decide`, `unsafe`, `extern`, `implemented_by`, `partial def`
@@ -291,6 +297,8 @@ That is the goal, and the measure of whether the packet is right.
 
 ### 6. Nothing ties a test to a requirement
 
+**Status: built.** `lib/spec.sh`, `orch spec coverage`; an uncited id blocks the red phase at strict as a finding raised by `coverage`. Suite: `test/axioms.test.sh`.
+
 **FLT:** in Prove2Me, "linking is attestation": a captain attaching a theorem
 to a milestone declares it faithful to the source, and only the captain may.
 Faithfulness is "the single most important thing".
@@ -382,6 +390,8 @@ did not demand". The design that puts both to work is in
 [`AGENT-TDD.md`](AGENT-TDD.md).
 
 ### 10. The developer's orders invite the accretion pathology
+
+**Status: the orders are built** — design first, the suite is a specification, own tests under `test/dev/`. The refactor pass is not.
 
 **Böckeler [P42]:** agents given a TDD workflow "kept making locally minimal
 changes around the first test", the early design hardened, and they rarely

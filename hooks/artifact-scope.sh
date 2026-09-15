@@ -11,13 +11,13 @@
 #   director, auditor,
 #   tech-lead           every artifact — they coordinate, plan, adjudicate
 #   developer           its own feature's directory, nothing cross-feature
-#   test-engineer       requirements.md and request.md ONLY. The blind oracle
+#   test-engineer       requirements.md, request.md and contract.md ONLY. The blind oracle
 #                       is the entire point of the strict tier: a test author
 #                       that can read the plan or the status file writes tests
 #                       shaped by the implementation's intentions. If a ruling
 #                       changes what the tests must assert, it belongs in
 #                       requirements.md, not in a side channel.
-#   code-reviewer       requirements.md and request.md ONLY — the criteria.
+#   code-reviewer       requirements.md, request.md, contract.md ONLY — the criteria.
 #                       The diff comes from git, and the developer's trace is
 #                       exactly what fresh context means not having.
 #
@@ -93,7 +93,7 @@ fi
 case "$role" in
   test-engineer|code-reviewer)
     case "$target_file" in
-      requirements.md|request.md) ;;
+      requirements.md|request.md|contract.md) ;;
       *)
         if [ "$role" = "test-engineer" ]; then
           block "the oracle is written blind" \

@@ -354,14 +354,18 @@ Sinking conditions, stated up front:
 
 ## Order of work
 
-1. The floor: `statement-frozen`, `oracle-frozen`, `evidence-clean`, `axioms`.
-   Hooks over hashes; no model call; already specified in `VERIFICATION.md`.
-2. The developer's orders and the developer test path. One sentence and one
-   glob.
-3. The contract and `contract-compiles`. Tech-lead prompt plus one gate.
+1. ~~The floor: `statement-frozen`, `oracle-frozen`, `evidence-clean`,
+   `axioms`.~~ **Built.** `lib/statement.sh`, `lib/axioms.sh`, the guards,
+   `test/floor.test.sh`, `test/axioms.test.sh`.
+2. ~~The developer's orders and the developer test path.~~ **Built.**
+3. The contract: **half built.** `contract.md` is part of the frozen statement,
+   the tech-lead is told to write it, and the blind roles read it. The
+   `contract-compiles` gate is not: the tech-lead writes no source, so
+   compilable stubs would have to come from the developer's first attested
+   step, and that ordering is not yet designed.
 4. `diff-coverage` and `mutation` extractors for the runners this repo's users
    actually have; report lines first, gates once the numbers look sane.
 5. The refactor pass, trigger and exit.
-6. `spec-coverage`, the read-back, the approval packet.
+6. ~~`spec-coverage`~~ **built**; the read-back and the approval packet are not.
 7. Holdout, only once the mutation and refactor numbers say the visible
    oracle is being overfit.

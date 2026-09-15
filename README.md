@@ -238,8 +238,12 @@ Boundaries are enforced by hooks that exit 2, not by prompts asking nicely:
 | the director cannot write source | `hooks/write-scope.sh` |
 | the developer cannot edit the tests it must satisfy | `hooks/write-scope.sh` |
 | the code-reviewer cannot read the task list | `hooks/task-scope.sh` |
-| the code-reviewer and test-engineer read only the requirements | `hooks/artifact-scope.sh` |
+| the code-reviewer and test-engineer read only the requirements and the contract | `hooks/artifact-scope.sh` |
 | the test-engineer cannot read the developer's tasks | `hooks/task-scope.sh` |
+| only the tech-lead writes the statement, and a frozen statement that moves blocks every gate | `hooks/write-scope.sh`, `hooks/task-guard.sh` |
+| the tests that pass are the tests that failed, however an edit was made | `hooks/task-guard.sh` |
+| no new skip, ignore, disabled lint or changed test config without a finding | `hooks/task-guard.sh` |
+| every requirement id is cited by an oracle test before the red phase completes | `hooks/task-guard.sh` |
 | reviewers can report, never act | `disallowedTools` |
 | candidates cannot escape their worktree | `isolation: worktree` |
 
@@ -256,11 +260,35 @@ produce an evidence row is to run the command:
 orch run --feature F001-csv-parser --label tests -- npm test
 ```
 
-That records the exit code, duration, output hash, and git sha. An approval
-citing a command with no entry is rejected `EVIDENCE_UNATTESTED`; one citing a
-non-zero exit while claiming success is rejected `EVIDENCE_CONTRADICTED`.
-Neither consumes a repair cycle — rejecting a false claim is not the same event
-as failing an honest attempt.
+That records the exit code, duration, output hash, git sha, and whether the
+tree was dirty. An approval citing a command with no entry is rejected
+`EVIDENCE_UNATTESTED`; one citing a non-zero exit while claiming success is
+rejected `EVIDENCE_CONTRADICTED`; one over uncommitted changes is rejected
+`EVIDENCE_DIRTY`. None consumes a repair cycle — rejecting a false claim is
+not the same event as failing an honest attempt.
+
+Three more things are checked by hash rather than by anyone's word, and the
+reasoning is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md):
+
+- **The statement is frozen.** `request.md` at feature start, `requirements.md`
+  and `contract.md` at tier confirm. A frozen file that changes is
+  `STATEMENT_MOVED` at every gate and at the merge, until the tech-lead
+  re-freezes it with a reason — which voids the red phase, because tests
+  written against the old statement do not describe the new one.
+- **The oracle is frozen.** The test tree at the red-phase sha is hashed; the
+  green gate refuses `ORACLE_MOVED` if the tree differs, whether the edit came
+  through Edit, Bash, `orch run`, or another worktree. The developer's own
+  tests go under `test/dev/` and are outside the oracle.
+- **Escape hatches are counted.** `orch axioms` lists every new skip, ignore,
+  disabled lint, or changed test config in the diff against the base. Each is
+  a blocking finding; the gate holds until it is fixed or disputed.
+
+```bash
+orch statement check F001-csv-parser   # exit 6 if a frozen file changed
+orch oracle check F001-csv-parser      # exit 7 if the test tree differs
+orch axioms F001-csv-parser            # exit 1 on any new escape hatch
+orch spec coverage F001-csv-parser     # which oracle tests cite each R-id
+```
 
 ## Watching, and stepping in
 
@@ -337,7 +365,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-532 assertions across eleven suites. No Claude session, no API key, no network.
+637 assertions across thirteen suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -361,9 +389,11 @@ lib/
   tier.sh         what you chose        escalate.sh   what the evidence forces
   health.sh       the six signals       evidence.sh   attested execution
   findings.sh     review findings       candidates.sh best-of-N
+  statement.sh    frozen statement, frozen oracle
+  axioms.sh       escape hatches        spec.sh       requirement coverage
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes
 agents/           six role definitions, ~3k tokens total
-hooks/            the six enforcement hooks
+hooks/            the seven enforcement hooks
 test/             run-all.sh
 docs/PROVENANCE.md  every cited result, with its verification status
 docs/VERIFICATION.md what the FLT formalization teaches this pipeline, and the gaps it exposes

@@ -107,11 +107,11 @@ launcher_orders() {  # launcher_orders <role> [feature] [gate]
         printf 'You are the director. No run request is on record yet — the human starts features with `orch feature start`. When one exists, drive it per your role; check `orch team status` and the shared task list now, then stand by.'
       fi ;;
     tech-lead)
-      printf 'You are the tech-lead for %s. Begin now: read docs/features/%s/request.md, produce requirements.md, design.md and tasks.md per your role, then run `orch tier recommend %s <quick|standard|strict> --why "..."` so the human can confirm.' "$f" "$f" "$f" ;;
+      printf 'You are the tech-lead for %s. Begin now: read docs/features/%s/request.md, produce requirements.md (each requirement on its own line with an id: R1, R2, ...), contract.md (the public interface: signatures, types, docstrings — what the tests and the implementation both build against), design.md and tasks.md per your role, then run `orch tier recommend %s <quick|standard|strict> --why "..."` so the human can confirm. The statement is frozen by hash at confirmation.' "$f" "$f" "$f" ;;
     developer)
-      printf 'You are the developer for %s. Begin now: read docs/features/%s/requirements.md and tasks.md, claim your tasks, implement, and attest every result with `orch run --feature %s --label <label> -- <cmd>` — unattested claims are rejected.' "$f" "$f" "$f" ;;
+      printf 'You are the developer for %s. Begin now: read docs/features/%s/requirements.md, contract.md and the ENTIRE test suite, then design the implementation and write it — the suite is a specification, not a to-do list; do not make it pass one test at a time. Your own tests go under test/dev/; the oracle is not yours to edit. Attest every result with `orch run --feature %s --label <label> -- <cmd>` — unattested claims are rejected.' "$f" "$f" "$f" ;;
     test-engineer)
-      printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and write failing tests from it alone, then attest the red phase with `orch run --feature %s --label tests --claim fail`.' "$f" "$f" "$f" ;;
+      printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and contract.md and write failing tests from them alone, one or more per requirement id, citing the id in each test name or a comment. Commit them, then attest the red phase with `orch run --feature %s --label tests -- <command>` — it must exit non-zero, over a committed tree.' "$f" "$f" "$f" ;;
     code-reviewer)
       printf 'You are a code-reviewer for %s, lens `%s`. Begin now: run `orch review scope %s` for your packet, review the diff through that lens only, and emit findings with `orch findings add --raised-by %s`. You change nothing.' "$f" "${ORCH_LENS:-correctness}" "$f" "${ORCH_LENS:-correctness}" ;;
     auditor)

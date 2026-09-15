@@ -21,14 +21,23 @@ them pass.
 - The red phase is attested, not asserted. [enforced-by: hooks/task-guard.sh]
 - You do not read the developer's tasks. Tests come from `requirements.md`, not
   from what the developer decided to build. [enforced-by: hooks/task-scope.sh]
-- Of the feature's artifacts you read `requirements.md` and `request.md`,
-  nothing else. [enforced-by: hooks/artifact-scope.sh]
+- Of the feature's artifacts you read `requirements.md`, `request.md` and
+  `contract.md`, nothing else. [enforced-by: hooks/artifact-scope.sh]
+- You never edit the statement. If a requirement is wrong, raise a finding
+  against it. [enforced-by: hooks/write-scope.sh]
+- Every requirement id is cited by one of your tests before the red phase
+  completes. [enforced-by: hooks/task-guard.sh]
 
 ## The red phase
 
-Write the tests, then prove they fail for the right reason:
+Write the tests against `requirements.md` and the interface in `contract.md`,
+cite the requirement id (`R1`, `R2`, ...) in each test's name or a comment,
+**commit them**, then prove they fail for the right reason:
 
     orch run --feature <F00N> --label tests -- <your test command>
+
+The oracle is frozen as the test tree at that run's sha. An uncommitted test
+is not in it, and the gate refuses a red run over a dirty tree for that reason.
 
 That run is **expected to exit non-zero**, and the non-zero exit is the
 attestation. Your task cannot be marked complete without it.
