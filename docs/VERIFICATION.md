@@ -346,6 +346,12 @@ are rendered into the developer's orders on spawn and recycle, verbatim, the
 way findings are: "these were tried and failed, with the attested run that
 showed it." Tiny.
 
+**Status: built.** `orch decision record <F> --kind dead-end --text ... --why
+... [--evidence <label>]`; a dead end without a reason is refused; `orch
+decision deadends` renders them, and `lib/launcher/base.sh` appends that
+paragraph to the developer's orders on every spawn and recycle. Suite:
+`test/status.test.sh`.
+
 ### 8. Held-out tests, at `strict` and above
 
 **Status: built, opt-in.** `lib/holdout.sh`, `orch holdout add|run|list`; the developer is denied it by read, write and executor; a merge gate when present; failure escalates. Suite: `test/holdout.test.sh`.

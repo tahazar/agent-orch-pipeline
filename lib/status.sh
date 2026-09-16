@@ -36,21 +36,43 @@ ORCH_STATUS_SOURCED=1
 # The number is derived from the count at write time. Two agents recording in
 # the same instant could mint the same number; the timestamp and actor still
 # disambiguate, and a decision's identity is its ledger row, not its label.
+#
+# kind is `decision` or `dead-end`. A dead end is an approach that was tried
+# and failed, with the attested run that showed it (--evidence names the
+# label). The FLT solver's checklist began with "read the logged dead-ends"
+# and "do NOT retry an approach the captain already rejected" [P37]; here a
+# dead end is rendered into the developer's orders on every spawn and
+# recycle, so a fresh context does not begin with the approach that failed
+# an hour ago. A dead end with no reason is refused: "it did not work" is
+# what the next developer will find out for itself.
 decision_record() {
-  local feature="$1" text="$2" why="${3:-}" n
+  local feature="$1" text="$2" why="${3:-}" kind="${4:-decision}" ev="${5:-}" n
   orch_valid_feature "$feature" || die "decision record: invalid feature '$feature'"
   [ -n "$text" ] || die "decision record: the decision text is required"
+  case "$kind" in decision|dead-end) ;; *) die "decision record: --kind must be decision or dead-end" ;; esac
+  [ "$kind" != dead-end ] || [ -n "$why" ] || die "decision record: a dead end needs --why — what was tried is only useful with why it failed"
   n="$(ledger_read "$feature" | jq -s '[.[] | select(type=="object" and .event=="decision.recorded")] | length + 1' 2>/dev/null)"
   ORCH_LEDGER_FEATURE="$feature" ledger_append decision.recorded \
-    n:raw "${n:-1}" text "$text" why "$why"
-  printf 'decision #%s recorded for %s.\n' "${n:-1}" "$feature"
+    n:raw "${n:-1}" kind "$kind" text "$text" why "$why" evidence "$ev"
+  if [ "$kind" = dead-end ]; then printf 'dead end #%s recorded for %s — every developer spawned or recycled from now on is told not to retry it.\n' "${n:-1}" "$feature"
+  else printf 'decision #%s recorded for %s.\n' "${n:-1}" "$feature"; fi
 }
 
 decision_list() {  # decision_list <feature>
   ledger_read "$1" | jq -r -s '
     [.[] | select(type=="object" and .event=="decision.recorded")]
     | if length==0 then "No decisions recorded."
-      else .[] | "#\(.n)  \(.text)\(if (.why // "") != "" then "\n     why: \(.why)" else "" end)  [\(.actor), \(.ts)]"
+      else .[] | "#\(.n)  \(if .kind == "dead-end" then "DEAD END  " else "" end)\(.text)\(if (.why // "") != "" then "\n     why: \(.why)" else "" end)\(if (.evidence // "") != "" then "  (attested: \(.evidence))" else "" end)  [\(.actor), \(.ts)]"
+      end' 2>/dev/null
+}
+
+# The dead ends, as the paragraph a developer's orders carry. Empty when none.
+decision_deadends() {  # decision_deadends <feature>
+  ledger_read "$1" | jq -r -s '
+    [.[] | select(type=="object" and .event=="decision.recorded" and .kind == "dead-end")]
+    | if length==0 then empty
+      else "Dead ends already on the ledger — tried and failed; do NOT retry them, and record your own with `orch decision record <F> --kind dead-end --text ... --why ...`: "
+           + (map("(#\(.n)) \(.text) — \(.why)\(if (.evidence // "") != "" then " [attested run: \(.evidence)]" else "" end)") | join("; "))
       end' 2>/dev/null
 }
 

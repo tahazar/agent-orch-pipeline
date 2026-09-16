@@ -491,6 +491,38 @@ What orch does not do is pick the scanner or its rules. That is the
 repository's call; orch attests that it ran, reads what it wrote, and holds
 the diff to it.
 
+## Performance
+
+A benchmark number on its own is a claim about a machine. The sensor makes
+it a claim about the diff: it checks the base out into a clean worktree,
+runs the same command there and at HEAD, interleaved, N times, takes the
+median of each side, and records the ratio with the base's own spread
+beside it.
+
+```bash
+orch sensor perf F001 --runs 5 -- go test -bench . -run xxx ./...     # or hyperfine --export-json, pytest --benchmark-json, or lines of "name value"
+ORCH_T_PERF=10 orch sensor perf F001 -- npm run bench                  # a gate: over 10% worse, outside the base's spread, is a perf finding
+```
+
+A regression smaller than the base's own spread is reported and not held
+against the diff. A budget file, `.claude/orch-perf.json` with
+`{"budgets": {"parse_1mb_ms": 15}}`, adds an absolute ceiling per benchmark
+that is blocking whatever the base did. Lower is better unless the name
+says otherwise (`ops`, `/s`, `throughput`, `qps`: `ORCH_PERF_HIGHER_RE`).
+
+## Dead ends
+
+What was tried and failed travels with the orders, not with a context
+window. A developer that hits one records it with the attested run that
+showed it; every developer spawned or recycled afterwards is told not to
+retry it, verbatim, before it reads anything else.
+
+```bash
+orch decision record F001 --kind dead-end --text "cache the parsed header" \
+  --why "the header is re-read per row; caching moved the cost, 31% slower" --evidence perf
+orch decision deadends F001
+```
+
 ## The read-back and the holdout
 
 Two more things borrowed from how the FLT proof was checked. Both are optional.
@@ -615,7 +647,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-1033 assertions across twenty suites. No Claude session, no API key, no network.
+1086 assertions across twenty-one suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -651,6 +683,7 @@ lib/
   product.sh      personas, stories, the chain, the product night and morning
   walkthrough.sh  the persona walkthrough: the read-back at product level
   security.sh     the security sensor (SARIF, diff-scoped, CWE/OWASP/CIS) and the lens's references
+  perf.sh         the performance sensor: A/B against the base, interleaved, medians, budgets
   security/       OWASP Top 10:2025, ASVS 5.0.0, CWE Top 25, CIS AWS 4.0.1 as data
   merge.sh        the merge queue: lock, integration run, advance
   waves.sh        the feature dependency graph

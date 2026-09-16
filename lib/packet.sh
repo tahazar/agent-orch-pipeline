@@ -30,6 +30,8 @@ ORCH_PACKET_SOURCED=1
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/walkthrough.sh"
 # shellcheck source=security.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security.sh"
+# shellcheck source=perf.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/perf.sh"
 
 _packet_h() { printf '\n== %s ==\n\n' "$1"; }
 
@@ -118,6 +120,7 @@ packet_render() {  # packet_render <feature>
       "$([ "$(printf '%s' "$row" | jq -r .at_sha)" = "$head" ] || printf '  (NOT at HEAD)')"
   done
   security_render "$feature" "$head"
+  perf_render "$feature" "$head"
   row="$(ledger_read "$feature" | jq -c -s '[.[] | select(type=="object" and (.event=="refactor.kept" or .event=="refactor.discarded" or .event=="refactor.skipped"))] | if length==0 then empty else .[-1] end' 2>/dev/null)"
   if [ -n "$row" ]; then
     printf '  refactor: %s%s\n' "$(printf '%s' "$row" | jq -r '.event | ltrimstr("refactor.")')" \

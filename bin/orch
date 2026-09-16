@@ -70,6 +70,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch sensor coverage <F> [--lcov F]  diff coverage from an lcov report; a ledger reading
   orch sensor mutation <F> [--from T]  mutation score from stryker, cargo-mutants, or an attested run
   orch sensor security <F> --class code|deps|iac --sarif FILE   a scanner's SARIF, scoped to the diff, mapped to CWE/OWASP/CIS
+  orch sensor perf <F> [--runs N] -- CMD…   the diff's benchmarks against the base's, interleaved, medians
   orch sensor show <F>                 the latest reading of each sensor
   orch security checklist              the security lens's criteria: OWASP Top 10:2025, ASVS 5.0, CWE Top 25, CIS AWS
   orch security asvs [V8 | V8.2 | 8.2.1 | word]   ASVS requirements
@@ -138,8 +139,9 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch diagnose run <F>                execute every prediction; results select
 
   orch status render|show [F]          status.md, generated from the ledger
-  orch decision record <F> --text T [--why W]   a decision, as a ledger event
+  orch decision record <F> --text T [--why W] [--kind dead-end] [--evidence LABEL]   a decision, or a dead end, as a ledger event
   orch decision list [F]
+  orch decision deadends [F]           what was tried and failed — carried into every developer's orders
 
   orch report [F|--all]                cost, uptake, gate yield
   orch watch                           live state; no terminal UI, works over SSH
@@ -614,10 +616,11 @@ be compared against what you actually said.
     case "$sub" in
       record)
         f="$(need "${1:-}" 'decision record: needs a feature')"; shift
-        decision_record "$f" "$(opt text '' "$@")" "$(opt why '' "$@")"
+        decision_record "$f" "$(opt text '' "$@")" "$(opt why '' "$@")" "$(opt kind decision "$@")" "$(opt evidence '' "$@")"
         ;;
+      deadends) . "$ORCH_HOME/lib/status.sh"; decision_deadends "${1:-$(orch_current_feature)}"; printf '\n' ;;
       list) decision_list "${1:-$(orch_current_feature)}" ;;
-      *) die "decision: expected record or list" ;;
+      *) die "decision: expected record, list, or deadends" ;;
     esac
     ;;
 
@@ -674,8 +677,14 @@ be compared against what you actually said.
         r="$(sensor_security "$f" "$@")" || exit 1
         printf '%s' "$r" | jq -r '"security-\(.class): \(.new) new finding(s) in the diff, \(.top25) CWE Top 25, \(.pre_existing) pre-existing (\(.tool)) at \(.sha[0:12]); \(.open) security finding(s) open"'
         ;;
+      perf)
+        . "$ORCH_HOME/lib/perf.sh"
+        r="$(sensor_perf "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"perf: worst \(.worst_pct)% (\(.worst // "-")) over \(.runs) interleaved runs at \(.sha[0:12])"'
+        printf '%s' "$r" | jq -r '.rows[] | "  \(.name)  \(.base) -> \(.head)  \(if .pct > 0 then "+" else "" end)\(.pct)%  spread \(.noise_pct)%\(if .over_budget then "  OVER BUDGET \(.budget)" else "" end)"'
+        ;;
       show)
-        for s in diff_coverage mutation; do
+        for s in diff_coverage mutation perf; do
           r="$(sensor_latest "$f" "$s")"
           [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: .event, at_sha, pct, ts}' || printf '{"sensor":"sensor.%s","reading":null}\n' "$s"
         done
@@ -685,7 +694,7 @@ be compared against what you actually said.
           [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: "sensor.security", class, at_sha, new, top25, pre_existing, ts}' || printf '{"sensor":"sensor.security","class":"%s","reading":null}\n' "$s"
         done
         ;;
-      *) die "sensor: expected coverage, mutation, security, or show" ;;
+      *) die "sensor: expected coverage, mutation, security, perf, or show" ;;
     esac
     ;;
 
