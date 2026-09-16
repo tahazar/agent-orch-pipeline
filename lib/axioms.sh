@@ -12,6 +12,8 @@
 # A test suite has its own `sorry`s, each with a different spelling: `.skip`,
 # `.only`, `xfail`, `# type: ignore`, `eslint-disable`, an `except: pass`
 # around the assertion, a regenerated snapshot, one edit to the test command.
+# A scanner has the same: `# nosec`, `# nosemgrep`, `checkov:skip`,
+# `trivy:ignore` — a finding silenced at the line is a finding nobody sees.
 # This file enumerates them and counts them in the diff. Any INCREASE against
 # the base branch is a blocking finding raised by `axioms`, which the developer
 # fixes or disputes like any other. Trusted configuration — the files that
@@ -55,6 +57,12 @@ except( +[A-Za-z_.]+)?: *(pass|\.\.\.) *$
 rubocop:disable
 expect\(true\)\.toBe\(true\)
 assert True *$
+nosec
+nosemgrep
+(checkov|bridgecrew):skip
+(trivy|tfsec|terrascan):ignore
+NOSONAR
+(lgtm|codeql) *\[
 PATTERNS
 }
 

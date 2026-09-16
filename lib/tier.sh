@@ -40,11 +40,20 @@ ORCH_TIERS="quick standard strict"
 # price — a lens with ~0% unique finds over ten features is deleted, whatever
 # it runs on.
 : "${ORCH_REVIEW_LENSES:=correctness failure-modes reproduction}"
+# Lenses that join at strict and above. The security lens reviews against
+# OWASP Top 10:2025, ASVS 5.0 and the CWE Top 25 (lib/security.sh); at quick
+# and standard the scanner sensor is the security check, and the lens is a
+# session a standard feature does not buy.
+[ -n "${ORCH_STRICT_LENSES+x}" ] || ORCH_STRICT_LENSES=security
 # Unset means the default; empty means "no opus lens". `:=` cannot tell those
 # apart, so the default is applied only when the variable does not exist.
 [ -n "${ORCH_OPUS_LENS+x}" ] || ORCH_OPUS_LENS=correctness
 
-tier_lenses() { printf '%s' "$ORCH_REVIEW_LENSES"; }
+tier_lenses() {  # tier_lenses [rung]
+  printf '%s' "$ORCH_REVIEW_LENSES"
+  [ "${1:-0}" -ge 2 ] && [ -n "$ORCH_STRICT_LENSES" ] && printf ' %s' "$ORCH_STRICT_LENSES"
+  return 0
+}
 
 # tier_lens_model <lens> -> the model override for that lens, or empty for the
 # role's own.

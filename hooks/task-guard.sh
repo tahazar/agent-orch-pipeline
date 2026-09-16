@@ -31,6 +31,7 @@ export ORCH_HOME ORCH_PROG
 . "$ORCH_HOME/lib/axioms.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/spec.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
+. "$ORCH_HOME/lib/security.sh" 2>/dev/null || true
 . "$ORCH_HOME/lib/substrate/base.sh" 2>/dev/null || true
 
 payload="$(cat 2>/dev/null)"
@@ -194,6 +195,15 @@ If it is already green, it is green at a sha older than HEAD — run it again."
 
 Thresholds are ORCH_T_DIFF_COV and ORCH_T_MUTATION. Unset, a sensor is a
 report line; set, it is this gate."
+    fi
+    if declare -f security_gate >/dev/null 2>&1; then
+      msg="$(security_gate "$feature" "${green_sha:-$(orch_head_sha)}" 2>&1)" || block "the security sensor holds the gate" \
+"$msg
+
+ORCH_SECURITY_CLASSES names the scanner classes that must have a reading at
+HEAD; ORCH_T_SECURITY is the most new findings the diff may carry. Each new
+finding is on the ledger as a \`security\` finding: fix it, or dispute it
+with the reason it is not a weakness."
     fi
     # No new escape hatches. Each increase against the base is a blocking
     # finding raised by `axioms`; an open one holds the gate, a disputed one
