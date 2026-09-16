@@ -439,6 +439,58 @@ story's `metric:` line is recorded and shown, not measured. It needs
 telemetry orch cannot assume, and the guardrail discipline in
 `docs/VERIFICATION.md` before anything is allowed to optimise for it.
 
+## Security
+
+Three mechanisms, against four references: OWASP Top 10:2025, OWASP ASVS
+5.0.0, the CWE Top 25, and the CIS AWS Foundations Benchmark 4.0.1. The
+references are data under `lib/security/`, each file saying where it came
+from and how it was verified.
+
+**The sensor** reads what a scanner wrote. Run the scanner through `orch run`
+so the run is attested, then read its SARIF; every scanner worth running
+writes SARIF (semgrep, CodeQL, bandit, gosec, trivy, grype, checkov, tfsec).
+
+```bash
+orch run --feature F001 --label security-code -- semgrep --config auto --sarif -o .orch/sec/code.sarif .
+orch sensor security F001 --class code --sarif .orch/sec/code.sarif
+orch run --feature F001 --label security-deps -- trivy fs --format sarif -o .orch/sec/deps.sarif .
+orch sensor security F001 --class deps --sarif .orch/sec/deps.sarif
+orch run --feature F001 --label security-iac  -- checkov -d infra -o sarif --output-file-path .orch/sec
+orch sensor security F001 --class iac --sarif .orch/sec/results_sarif.sarif
+```
+
+Results are scoped to the diff: a result on a line the diff touched is new,
+the rest is pre-existing and counted separately. Each new result is mapped to
+its CWE, the OWASP Top 10:2025 categories that CWE belongs to, whether it is
+in the CWE Top 25, and for infrastructure a CIS AWS recommendation id, and it
+becomes a finding raised by `security`: blocking when it is Top 25 or the
+tool says error, major otherwise. `ORCH_T_SECURITY=0` makes any new finding
+a gate failure; `ORCH_SECURITY_CLASSES="code deps"` makes a missing reading
+at HEAD a gate failure.
+
+**The lens.** At strict, a `security` code-reviewer joins the ensemble. Its
+orders begin with `orch security checklist`, which puts the ten OWASP
+categories as questions with the ASVS chapters that answer each, the Top 25,
+and the recurring CIS recommendations in front of it, and every finding it
+raises cites a CWE id or an ASVS requirement id. The scanner finds what a
+pattern finds; the lens is for missing authorization, a logic bypass, a trust
+decision made on the client's word.
+
+```bash
+orch security checklist            # what the lens reviews against
+orch security asvs V8.2            # ASVS requirements of a chapter, section, or id; or a word
+orch security owasp CWE-89         # which categories map a CWE; whether it is Top 25
+orch security cis 5.3              # CIS AWS recommendations by section or Prowler check
+```
+
+**The axioms.** `# nosec`, `# nosemgrep`, `checkov:skip`, `trivy:ignore`,
+`NOSONAR` and `lgtm[...]` are escape hatches like `.skip`: an increase in the
+diff is a blocking finding.
+
+What orch does not do is pick the scanner or its rules. That is the
+repository's call; orch attests that it ran, reads what it wrote, and holds
+the diff to it.
+
 ## The read-back and the holdout
 
 Two more things borrowed from how the FLT proof was checked. Both are optional.
@@ -563,7 +615,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-970 assertions across nineteen suites. No Claude session, no API key, no network.
+1033 assertions across twenty suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -598,6 +650,8 @@ lib/
   upkeep.sh       the census, the night, the morning
   product.sh      personas, stories, the chain, the product night and morning
   walkthrough.sh  the persona walkthrough: the read-back at product level
+  security.sh     the security sensor (SARIF, diff-scoped, CWE/OWASP/CIS) and the lens's references
+  security/       OWASP Top 10:2025, ASVS 5.0.0, CWE Top 25, CIS AWS 4.0.1 as data
   merge.sh        the merge queue: lock, integration run, advance
   waves.sh        the feature dependency graph
   diagnose.sh     competing hypotheses  report.sh     cost and outcomes

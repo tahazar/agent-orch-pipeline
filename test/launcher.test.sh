@@ -56,8 +56,8 @@ contains "$out" "code-reviewer" "and the code-reviewer"
 
 printf '\nthe review ensemble is spawned, not described:\n'
 n_lens="$(printf '%s' "$out" | grep -c 'ORCH_LENS=')"
-[ "$n_lens" = "3" ]; chk $? "three lenses, three sessions (got $n_lens)"
-for l in correctness failure-modes reproduction; do
+[ "$n_lens" = "4" ]; chk $? "four lenses at strict, four sessions — the three review lenses and security (got $n_lens)"
+for l in correctness failure-modes reproduction security; do
   contains "$out" "code-reviewer-$l" "a session named for the $l lens"
   contains "$out" "lens \`$l\`" "whose orders name that lens"
 done
@@ -68,8 +68,8 @@ chk $? "and it is the correctness lens by default"
 not_contains "$(printf '%s' "$out" | grep 'agent developer')" "--model" "the developer keeps its frontmatter model"
 out="$(ORCH_OPUS_LENS= "$ORCH" team start --feature F031-strict 2>&1)"
 not_contains "$out" "--model" "an empty ORCH_OPUS_LENS puts every lens on the role's own model"
-out="$(ORCH_REVIEW_LENSES=correctness "$ORCH" team start --feature F031-strict 2>&1)"
-[ "$(printf '%s' "$out" | grep -c 'ORCH_LENS=')" = "1" ]; chk $? "the lens list is overridable"
+out="$(ORCH_REVIEW_LENSES=correctness ORCH_STRICT_LENSES= "$ORCH" team start --feature F031-strict 2>&1)"
+[ "$(printf '%s' "$out" | grep -c 'ORCH_LENS=')" = "1" ]; chk $? "the lens lists are overridable"
 
 printf '\na reviewer spawned by hand gets a lens too:\n'
 out="$("$ORCH" spawn code-reviewer --feature F031-strict --lens reproduction 2>&1)"

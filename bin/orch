@@ -69,7 +69,13 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
 
   orch sensor coverage <F> [--lcov F]  diff coverage from an lcov report; a ledger reading
   orch sensor mutation <F> [--from T]  mutation score from stryker, cargo-mutants, or an attested run
+  orch sensor security <F> --class code|deps|iac --sarif FILE   a scanner's SARIF, scoped to the diff, mapped to CWE/OWASP/CIS
   orch sensor show <F>                 the latest reading of each sensor
+  orch security checklist              the security lens's criteria: OWASP Top 10:2025, ASVS 5.0, CWE Top 25, CIS AWS
+  orch security asvs [V8 | V8.2 | 8.2.1 | word]   ASVS requirements
+  orch security owasp <CWE-n>          which Top 10 categories map a CWE
+  orch security cis [section | check]  CIS AWS Foundations recommendations
+  orch security top25
   orch axioms <F> [--base B]           new escape hatches in the diff; exit 1 if any
   orch spec coverage <F>               which oracle tests cite each requirement id
 
@@ -504,7 +510,7 @@ be compared against what you actually said.
               # on opus. A subshell per spawn so the lens and model reach the
               # orders, the env and the ledger row without leaking into the
               # next role's spawn.
-              for lens in $(tier_lenses); do
+              for lens in $(tier_lenses "$rung"); do
                 ( export ORCH_LENS="$lens" ORCH_MODEL="$(tier_lens_model "$lens")"
                   ORCH_LEDGER_FEATURE="$f" ORCH_EFFORT="$eff" \
                     ORCH_PROMPT="$(launcher_orders "$r" "$f")" \
@@ -663,13 +669,38 @@ be compared against what you actually said.
         r="$(sensor_mutation "$f" "$@")" || exit 1
         printf '%s' "$r" | jq -r '"mutation score: \(.pct // "—")% (\(.from), scope \(.scope)" + (if .total != null then ", \(.killed)/\(.total) killed" else "" end) + ") at \(.sha[0:12])"'
         ;;
+      security)
+        . "$ORCH_HOME/lib/security.sh"
+        r="$(sensor_security "$f" "$@")" || exit 1
+        printf '%s' "$r" | jq -r '"security-\(.class): \(.new) new finding(s) in the diff, \(.top25) CWE Top 25, \(.pre_existing) pre-existing (\(.tool)) at \(.sha[0:12]); \(.open) security finding(s) open"'
+        ;;
       show)
         for s in diff_coverage mutation; do
           r="$(sensor_latest "$f" "$s")"
           [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: .event, at_sha, pct, ts}' || printf '{"sensor":"sensor.%s","reading":null}\n' "$s"
         done
+        . "$ORCH_HOME/lib/security.sh"
+        for s in $ORCH_SECURITY_CLASS_LIST; do
+          r="$(security_latest "$f" "$s")"
+          [ -n "$r" ] && printf '%s' "$r" | jq -c '{sensor: "sensor.security", class, at_sha, new, top25, pre_existing, ts}' || printf '{"sensor":"sensor.security","class":"%s","reading":null}\n' "$s"
+        done
         ;;
-      *) die "sensor: expected coverage, mutation, or show" ;;
+      *) die "sensor: expected coverage, mutation, security, or show" ;;
+    esac
+    ;;
+
+  security)
+    . "$ORCH_HOME/lib/security.sh"
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      checklist) security_checklist ;;
+      asvs)      security_asvs "${1:-}" ;;
+      owasp)     c="$(need "${1:-}" 'security owasp: needs a CWE id like CWE-89')"
+                 for o in $(security_owasp_of "$c"); do printf '%s  %s\n' "$o" "$(security_owasp_name "$o")"; done
+                 security_is_top25 "$c" && printf '%s is in the CWE Top 25\n' "$c"; true ;;
+      cis)       security_cis "${1:-}" ;;
+      top25)     security_top25 ;;
+      *) die "security: expected checklist, asvs, owasp, cis, or top25" ;;
     esac
     ;;
 

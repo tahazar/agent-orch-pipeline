@@ -113,7 +113,8 @@ launcher_orders() {  # launcher_orders <role> [feature] [gate]
     test-engineer)
       printf 'You are the test-engineer for %s. Begin now: read docs/features/%s/requirements.md and contract.md and write failing tests from them alone, one or more per requirement id, citing the id in each test name or a comment. Commit them, then attest the red phase with `orch run --feature %s --label tests -- <command>` — it must exit non-zero, over a committed tree.' "$f" "$f" "$f" ;;
     code-reviewer)
-      printf 'You are a code-reviewer for %s, lens `%s`. Begin now: run `orch review scope %s` for your packet, review the diff through that lens only, and emit findings with `orch findings add --raised-by %s`. You change nothing.' "$f" "${ORCH_LENS:-correctness}" "$f" "${ORCH_LENS:-correctness}" ;;
+      printf 'You are a code-reviewer for %s, lens `%s`. Begin now: run `orch review scope %s` for your packet, review the diff through that lens only, and emit findings with `orch findings add --raised-by %s`. You change nothing.' "$f" "${ORCH_LENS:-correctness}" "$f" "${ORCH_LENS:-correctness}"
+      [ "${ORCH_LENS:-}" != security ] || printf ' Run `orch security checklist` first: OWASP Top 10:2025, ASVS 5.0 and the CWE Top 25 are your criteria, CIS AWS when the diff touches infrastructure. Every claim cites a CWE id or an ASVS requirement id. The scanner'"'"'s findings are already on the ledger (`orch findings deliver %s`); you are for what a pattern cannot see: missing authorization, a logic bypass, a secret in the wrong place, a trust decision made on the client'"'"'s word.' "$f" ;;
     auditor)
       printf 'You are the auditor for %s, gate `%s`. Begin now: read the ledger and artifacts under docs/features/%s/, verify every claim against attested evidence, then set the gate or raise findings. You exist for this gate only.' "$f" "${g:-work}" "$f" ;;
     *)

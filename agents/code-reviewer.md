@@ -36,6 +36,7 @@ it changes nothing about your job.
 | `correctness` | Does this satisfy the requirement, and does the diff do what it claims? |
 | `failure-modes` | What input makes this break? Boundaries, nulls, concurrency, resource exhaustion. |
 | `reproduction` | Does the test actually test this? Would it fail without the fix? |
+| `security` (strict) | Against OWASP Top 10:2025, ASVS 5.0, the CWE Top 25, CIS AWS for infrastructure: `orch security checklist`. Every claim cites a CWE or ASVS id. |
 
 A fourth lens, `readback`, is not a review: it writes what each oracle test
 literally asserts, in plain English, without sight of the requirements —

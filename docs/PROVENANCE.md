@@ -286,6 +286,72 @@ and `orch product personas`, never an edit to the persona file.
 
 ---
 
+## [P50] OWASP Top 10:2025 — **verified**, first-hand
+
+> github.com/OWASP/Top10, `2025/docs/en/index.md` and the ten category
+> pages, fetched 2026-09-16. The repository README marks 2025 as released
+> (final) and 2021 as superseded. CC BY-SA 4.0.
+
+The ten categories and the "List of Mapped CWEs" section of each page are
+`lib/security/owasp-top10-2025.tsv`, generated from those files. A01 Broken
+Access Control (40 CWEs), A02 Security Misconfiguration (16), A03 Software
+Supply Chain Failures (6), A04 Cryptographic Failures (32), A05 Injection
+(37), A06 Insecure Design (39), A07 Authentication Failures (36), A08
+Software or Data Integrity Failures (14), A09 Security Logging and Alerting
+Failures (5), A10 Mishandling of Exceptional Conditions (24).
+
+*Acts on:* `orch security owasp`, the category on every security finding,
+and the checklist's ten questions.
+
+---
+
+## [P51] OWASP ASVS 5.0.0 — **verified**, first-hand
+
+> github.com/OWASP/ASVS, tag v5.0.0,
+> `5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv`,
+> fetched 2026-09-16. 345 requirements across V1–V17, levels 1–3. CC BY-SA
+> 4.0. The project README's citation format (`v5.0.0-1.2.5`) is the one the
+> lens is told to use.
+
+`lib/security/asvs-5.0.0.tsv` is the CSV, one requirement per line.
+
+*Acts on:* `orch security asvs`; the ASVS chapters named against each Top 10
+category in the checklist; the citation rule for the lens's findings.
+
+---
+
+## [P52] CWE Top 25 (2024) — **unverified**
+
+> cwe.mitre.org was unreachable from the build environment. The list in
+> `lib/security/cwe-top25-2024.txt` is from memory, and the file says so.
+> The OWASP Top 10:2025 pages [P50] mention several Top 25 entries by name
+> in their descriptions, which is consistent with the list but does not
+> verify its ranks or its membership.
+
+*Acts on:* the blocking-versus-major rule for scanner findings. Until the
+file is checked against MITRE, a repository can point `ORCH_CWE_TOP25_FILE`
+at its own copy.
+
+---
+
+## [P53] CIS AWS Foundations Benchmark 4.0.1 — **partial**
+
+> The benchmark itself (cisecurity.org) was unreachable and is not freely
+> redistributable. What was read first-hand is Prowler's mapping of it:
+> github.com/prowler-cloud/prowler, `prowler/compliance/aws/cis_4.0_aws.json`,
+> fetched 2026-09-16, Apache-2.0: 64 recommendations with id, section,
+> profile level and the Prowler checks that test each.
+
+`lib/security/cis-aws-4.0.1.tsv` carries id, section, title, level and
+checks. The titles are the benchmark's recommendation titles as Prowler
+records them; the benchmark's rationale and remediation text is not here.
+
+*Acts on:* `orch security cis`; the CIS id attached to an infrastructure
+finding whose rule id is a Prowler check; the recurring recommendations in
+the checklist.
+
+---
+
 ## [P44] Model lineup, pricing and effort guidance — **verified**, first-hand
 
 > Anthropic's bundled `claude-api` reference (model table cached 2026-06-24),
