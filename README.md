@@ -374,9 +374,14 @@ nightly re-run does not plan a file twice while its pass is open. An attested
 per-file metric (`orch run --feature _orch --label upkeep-metrics -- <tool
 printing "score path" lines>`) is read into the census when present.
 
-What is not here yet: maintenance driven by production errors and latency. It
-needs telemetry orch cannot assume, and it must read attested aggregates,
-never raw logs.
+The log half reads aggregates your own script prints — error clusters and
+p95 latency, never raw logs — and the worst become features with requests
+written from the numbers, crewed like any other:
+
+```bash
+orch run --feature _orch --label telemetry -- ./scripts/telemetry.sh   # "error <cluster> <count> [path]" / "latency <endpoint> <p95_ms> [path]"
+orch upkeep telemetry --top 3 --start
+```
 
 ## Product: personas, stories, the night, the morning
 
@@ -434,10 +439,29 @@ orch walkthrough record F001-export-week --outcome done --steps 4 --minutes 3 --
 
 A story-backed feature is any feature whose request carries a `Story: S00N`
 line, so a feature you start by hand joins the chain by citing one. Upkeep
-features do not need a story. What is not here yet: the metrics loop — a
-story's `metric:` line is recorded and shown, not measured. It needs
-telemetry orch cannot assume, and the guardrail discipline in
-`docs/VERIFICATION.md` before anything is allowed to optimise for it.
+features do not need a story.
+
+**The metrics loop** closes the chain from the other end. `docs/product/metrics.md`
+defines what the product is measured by, frozen with the personas and
+stories; a story's `metric:` line names one and a direction; readings are
+aggregates your own script prints, attested. Once a feature is kept, the
+loop says whether its hypothesis held.
+
+```
+docs/product/metrics.md
+- exports_per_user: up — exports per weekly active user
+- error_rate: down guardrail — 5xx per 1k requests; a breach while features land is a blocking finding
+- p95_ms: down guardrail holdout — never shown to a crew, never a story's target; the human's number
+```
+
+```bash
+orch run --feature _orch --label metrics -- ./scripts/metrics.sh    # prints "name value" lines; aggregates, never raw logs
+orch product metrics        # readings, guardrails, each kept feature's hypothesis confirmed|refuted|unchanged, proposals
+```
+
+A confirmed hypothesis is evidence for the persona: the loop proposes
+`evidence: measured` for a persona whose stories' hypotheses were confirmed
+and none refuted. Proposed; the file is yours.
 
 ## Security
 
@@ -647,7 +671,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-1086 assertions across twenty-one suites. No Claude session, no API key, no network.
+1117 assertions across twenty-one suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 
@@ -682,6 +706,7 @@ lib/
   upkeep.sh       the census, the night, the morning
   product.sh      personas, stories, the chain, the product night and morning
   walkthrough.sh  the persona walkthrough: the read-back at product level
+  metrics.sh      the metrics loop: definitions, guardrails, the holdout metric, hypotheses measured
   security.sh     the security sensor (SARIF, diff-scoped, CWE/OWASP/CIS) and the lens's references
   perf.sh         the performance sensor: A/B against the base, interleaved, medians, budgets
   security/       OWASP Top 10:2025, ASVS 5.0.0, CWE Top 25, CIS AWS 4.0.1 as data

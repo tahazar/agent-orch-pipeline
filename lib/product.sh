@@ -49,6 +49,8 @@ ORCH_PRODUCT_SOURCED=1
 
 # shellcheck source=walkthrough.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/walkthrough.sh"
+# shellcheck source=metrics.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/metrics.sh"
 # shellcheck source=waves.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/waves.sh"
 # shellcheck source=findings.sh
@@ -63,10 +65,11 @@ ORCH_PRODUCT_SOURCED=1
 
 product_personas() { ls "$(product_dir)/personas" 2>/dev/null | grep '\.md$' | sed 's/\.md$//'; }
 product_stories()  { ls "$(product_dir)/stories" 2>/dev/null | grep -E '^S[0-9]{3}.*\.md$' | sed 's/\.md$//' | sort; }
-product_files() {  # every persona and story, relative to docs/product
+product_files() {  # every persona and story, and the metric definitions, relative to docs/product
   local x
   for x in $(product_personas); do printf 'personas/%s.md\n' "$x"; done
   for x in $(product_stories); do printf 'stories/%s.md\n' "$x"; done
+  [ ! -r "$(product_dir)/metrics.md" ] || printf 'metrics.md\n'
 }
 _product_hash() { orch_sha256 < "$(product_dir)/$1"; }
 
@@ -237,7 +240,7 @@ _product_next_id() {  # the lowest free F0NN..F8NN; upkeep owns F9NN
 # tier is the story's or the default; `after:` becomes --after on the
 # features the stories it names already have.
 product_plan() {
-  local only='' s sid sf per ev expl tier after dep a slug id req msg
+  local only='' s sid sf per ev expl tier after dep a slug id req msg hyp
   while [ "$#" -gt 0 ]; do case "$1" in --story) only="${2%%-*}"; shift 2 ;; *) shift ;; esac; done
   [ -n "$(product_stories)" ] || die "product plan: no stories under $(product_dir)/stories"
   msg="$(product_check 2>&1)" || die "product plan: $msg"
@@ -251,6 +254,12 @@ product_plan() {
     [ -n "$per" ] && [ -r "$(product_persona_file "$per")" ] || { warn "product plan: $sid names no persona that exists; skipped"; continue; }
     ev="$(product_persona_evidence "$per")"
     expl=false; case "$ev" in hypothesized|none) expl=true ;; esac
+    # A holdout metric is the human's number; a story that targets it would
+    # hand the crew the one thing the holdout exists to keep from them.
+    hyp="$(metrics_hypothesis "$sid")"
+    if [ -n "$hyp" ] && metrics_holdout_names | grep -qx "${hyp%% *}"; then
+      warn "product plan: $sid targets ${hyp%% *}, a holdout metric; skipped — pick a metric the crew may see"; continue
+    fi
     tier="$(product_field "$sf" tier)"; tier="${tier:-$ORCH_PRODUCT_TIER}"
     after=''
     for a in $(product_field "$sf" after | tr ',' ' '); do
@@ -304,7 +313,7 @@ product_night() {
 # cost, the verbs. Never the diff — that is what the packet is for, and the
 # morning is selection, not review.
 product_morning() {
-  local f row st head base ev tests nf diff usage
+  local f row st head base ev tests nf diff usage v
   printf 'product morning\n\n'
   [ -n "$(_product_features)" ] || { printf '  no story-backed features. Write stories, then:  orch product night\n'; return 0; }
   for f in $(_product_features); do
@@ -313,7 +322,10 @@ product_morning() {
     printf '%s  %s  as %s (%s)   %s%s\n' "$f" "$(product_feature_story "$f")" \
       "$(printf '%s' "$row" | jq -r '.persona // "-"')" "$(printf '%s' "$row" | jq -r '.evidence // "?"')" "$st" \
       "$(printf '%s' "$row" | jq -r 'if .exploratory then "   EXPLORATORY" else "" end')"
-    case "$st" in landed|discarded) printf '\n'; continue ;; esac
+    case "$st" in
+      landed) v="$(metrics_verdict "$f")"; [ "$v" = none ] || printf '  metric: %s\n' "$v"; printf '\n'; continue ;;
+      discarded) printf '\n'; continue ;;
+    esac
     printf '  walkthrough: %s\n' "$(walkthrough_render "$f")"
     head="$(git -C "$(orch_feature_repo "$f")" rev-parse HEAD 2>/dev/null)"
     base="$(git -C "$(orch_feature_repo "$f")" merge-base "$(escalate_base_branch)" "$head" 2>/dev/null)"

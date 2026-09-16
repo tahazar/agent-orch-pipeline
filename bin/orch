@@ -117,6 +117,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch upkeep plan [--top N]           the top files become upkeep features
   orch upkeep night [--top N]          a refactor pass per file, in parallel, landing on branches
   orch upkeep morning                  what held; then  orch upkeep keep|discard <F>
+  orch upkeep telemetry [--top N] [--start]   production error clusters and latency, from an attested run, become features
 
   orch product trace                   persona -> story -> feature -> state; orphans exit 1
   orch product freeze [--why W]        hash the personas and stories; check exits 9 if one moved
@@ -125,6 +126,7 @@ orch — adaptive orchestration on Claude Code's native coordination primitives.
   orch product morning                 each feature: the walkthrough first, then the numbers
   orch product keep <F> [--exploratory] | iterate <F> --note T | discard <F> --why W
   orch product personas                each persona, its stories, what the mornings taught it
+  orch product metrics                 the loop: readings, guardrails, each kept feature's hypothesis, proposals
   orch walkthrough start <F>           a fresh session as the persona, blind to the code
   orch walkthrough record <F> --outcome done|blocked --steps N [--minutes M] [--note T]
   orch walkthrough status <F>
@@ -984,9 +986,10 @@ be compared against what you actually said.
       plan)    upkeep_plan "$@" ;;
       night)   upkeep_night "$@" ;;
       morning) upkeep_morning ;;
+      telemetry) upkeep_telemetry "$@" ;;
       keep)    upkeep_keep "$(need "${1:-}" 'upkeep keep: needs a feature')" ;;
       discard) f="$(need "${1:-}" 'upkeep discard: needs a feature')"; shift; upkeep_discard "$f" "$(opt why '' "$@")" ;;
-      *) die "upkeep: expected scan, plan, night, morning, keep, or discard" ;;
+      *) die "upkeep: expected scan, plan, night, morning, telemetry, keep, or discard" ;;
     esac
     ;;
 
@@ -1000,13 +1003,14 @@ be compared against what you actually said.
       freeze)   product_freeze "$(opt why '' "$@")" ;;
       check)    product_check && printf 'product: as frozen\n' ;;
       personas) product_personas_render ;;
+      metrics)  metrics_render ;;
       plan)     product_plan "$@" ;;
       night)    product_night "$@" ;;
       morning)  product_morning ;;
       keep)     f="$(need "${1:-}" 'product keep: needs a feature')"; shift; product_keep "$f" "$@" ;;
       iterate)  f="$(need "${1:-}" 'product iterate: needs a feature')"; shift; product_iterate "$f" "$@" ;;
       discard)  f="$(need "${1:-}" 'product discard: needs a feature')"; shift; product_discard "$f" "$@" ;;
-      *) die "product: expected trace, freeze, check, personas, plan, night, morning, keep, iterate, or discard" ;;
+      *) die "product: expected trace, freeze, check, personas, metrics, plan, night, morning, keep, iterate, or discard" ;;
     esac
     ;;
 

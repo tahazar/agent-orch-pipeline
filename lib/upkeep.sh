@@ -21,9 +21,12 @@
 #            N passes from one base cannot all fast-forward.
 #   morning  what held, with the numbers; keep merges, discard archives.
 #
-# The log half — maintenance driven by production errors and latency — is
-# not here yet. It needs telemetry this file cannot assume, and it must read
-# attested aggregates, never raw logs.
+#   telemetry  the log half. An attested `telemetry` run on the run ledger
+#            prints aggregates — `error <cluster> <count> [path]`,
+#            `latency <endpoint> <p95> [path]` — and the worst become
+#            features with requests written from the numbers. Aggregates,
+#            never raw logs: a log line is where personal data lives, and a
+#            context window is not where it should end up.
 
 [ -n "${ORCH_UPKEEP_SOURCED:-}" ] && return 0
 ORCH_UPKEEP_SOURCED=1
@@ -154,6 +157,53 @@ upkeep_plan() {
     ORCH_LEDGER_FEATURE="$id" ledger_append upkeep.planned file "$f" score:raw "$(printf '%s' "$row" | jq -r .score)"
     printf '%s  %s\n' "$id" "$f"
   done
+}
+
+# upkeep_telemetry [--top N] [--start] — the log half. Reads the latest
+# attested `telemetry` run: "<kind> <name> <value> [path]" lines, kinds
+# error and latency (anything else is reported and not planned). The top N
+# by value become ordinary features — a fix changes behaviour, so this is a
+# crew with a tier, not a refactor pass — and --start crews them.
+upkeep_telemetry() {
+  local top="$ORCH_UPKEEP_TOP" start=0 rows kind name value path id
+  while [ "$#" -gt 0 ]; do case "$1" in --top) top="$2"; shift 2 ;; --start) start=1; shift ;; *) shift ;; esac; done
+  rows="$(evidence_latest _orch telemetry | jq -r 'select(.exit_code==0) | .stdout_tail // ""' 2>/dev/null \
+    | awk '$1 ~ /^(error|latency)$/ && $3 ~ /^[0-9]+(\.[0-9]+)?$/ {print $1, $2, $3, ($4 == "" ? "-" : $4)}' | sort -k3,3 -g -r | head -n "$top")"
+  [ -n "$rows" ] || die "upkeep telemetry: no attested \`telemetry\` run printing 'error <cluster> <count> [path]' or 'latency <endpoint> <p95_ms> [path]' lines:
+  orch run --feature _orch --label telemetry -- <script that queries your error tracker and APM and prints aggregates>"
+  printf '%s\n' "$rows" | while read -r kind name value path; do
+    if id="$(_upkeep_open_for "$kind:$name")"; then
+      printf '%s  %s %s (exists)\n' "$id" "$kind" "$name"
+    else
+      id="$(_upkeep_next_id)-upkeep-$kind-$(printf '%s' "$name" | tr -c 'A-Za-z0-9\n' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-32)"
+      _upkeep_telemetry_start "$id" "$kind" "$name" "$value" "$path" || continue
+    fi
+    # Crewed once: a signal that is already being worked is not re-crewed.
+    if [ "$start" = 1 ] && ! ledger_read "$id" | jq -e -s 'any(.[]; type=="object" and (.event=="agent.spawned" or .event=="agent.printed") and .role!="director")' >/dev/null 2>&1; then
+      ORCH_FEATURE="$id" "$ORCH_ROOT_BIN" team start --feature "$id" 2>&1 | sed 's/^/  /'
+    fi
+  done
+}
+
+_upkeep_telemetry_start() {  # _upkeep_telemetry_start <id> <kind> <name> <value> <path>
+  local id="$1" kind="$2" name="$3" value="$4" path="$5" req
+    case "$kind" in
+      error)   req="Production error cluster \`$name\`: $value occurrences in the telemetry window$([ "$path" != - ] && printf ', attributed to %s' "$path").
+
+R1 the cause is found and fixed, or the error is shown to be expected and handled where it occurs
+R2 every existing test still passes
+R3 an attested run reproduces the failure before the fix and its absence after
+R4 no new skip, ignore, disabled lint, or changed test config" ;;
+      latency) req="Production latency: \`$name\` p95 is ${value}ms in the telemetry window$([ "$path" != - ] && printf ', attributed to %s' "$path").
+
+R1 the cause is found and the p95 reduced, measured A/B with orch sensor perf
+R2 every existing test still passes
+R3 no new skip, ignore, disabled lint, or changed test config" ;;
+    esac
+    "$ORCH_ROOT_BIN" feature start "$id" --request "$req" --tier "$ORCH_UPKEEP_TIER" >/dev/null 2>&1 \
+      || { warn "upkeep telemetry: could not start $id"; return 1; }
+    ORCH_LEDGER_FEATURE="$id" ledger_append upkeep.planned file "$kind:$name" kind "$kind" value:raw "$value" path "$path"
+    printf '%s  %s %s = %s\n' "$id" "$kind" "$name" "$value"
 }
 
 # upkeep_night [--top N] — plan, then for each feature: attest green on the

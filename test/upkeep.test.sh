@@ -117,4 +117,28 @@ out="$("$ORCH" upkeep morning 2>&1)"
 contains "$out" "done      $first_id  kept" "morning now shows both as done"
 contains "$out" "done      $second_id  discarded" ""
 
+
+printf '\ntelemetry: the log half, from attested aggregates:\n'
+out="$("$ORCH" upkeep telemetry 2>&1)"; rc=$?
+chk_rc 1 "$rc" "without an attested telemetry run, refused"
+contains "$out" "orch run --feature _orch --label telemetry" "and told how"
+"$ORCH" run --feature _orch --label telemetry -- sh -c 'printf "error NullRef 120 src/hairy.py\nlatency /export 900\nother thing 5\nerror Timeout 7\n"' >/dev/null 2>&1
+out="$("$ORCH" upkeep telemetry --top 2 2>&1)"; rc=$?
+chk_rc 0 "$rc" "telemetry plans"
+contains "$out" "upkeep-latency-export  latency /export = 900" "the worst signal first"
+contains "$out" "upkeep-error-NullRef  error NullRef = 120" "then the error cluster"
+not_contains "$out" "Timeout" "the third is outside --top 2"
+not_contains "$out" "other" "and an unknown kind is not planned"
+id="$(printf '%s' "$out" | grep NullRef | awk '{print $1}')"
+req="$(cat "$(fdir $id)/request.md")"
+contains "$req" "120 occurrences" "the request carries the number"
+contains "$req" "attributed to src/hairy.py" "and the path"
+contains "$req" "R3 an attested run reproduces the failure" "and requirement ids"
+[ "$("$ORCH" tier show $id | jq -r .running)" = standard ]; chk $? "at the upkeep tier"
+out="$("$ORCH" upkeep telemetry --top 2 2>&1)"
+contains "$out" "error NullRef (exists)" "a second run does not plan it twice"
+out="$("$ORCH" upkeep telemetry --top 2 --start 2>&1)"
+jq -e -s 'any(.[]; .event=="agent.printed" and .role=="developer")' "$(fdir $id)/ledger.jsonl" >/dev/null; chk $? "--start crews it"
+
+
 finish upkeep
