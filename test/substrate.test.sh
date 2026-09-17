@@ -127,4 +127,22 @@ out="$(PATH="$WORK/bin:$PATH" FAKE_ROSTER="$WORK/roster-remote.json" \
 contains "$out" "cannot see" "doctor catches a cross-container unreachable peer"
 contains "$out" "must share a filesystem" "doctor explains the same-filesystem constraint"
 
+
+printf '\nthe socket directory is per peer, not global:\n'
+# Claude Code picks $XDG_RUNTIME_DIR/cc-socks when the process has it and
+# /tmp/cc-socks when it does not; one host can have both. The probe searches
+# every candidate for each peer, in a stated order.
+out="$(unset ORCH_SOCKET_DIR; XDG_RUNTIME_DIR=/run/user/4242 ORCH_ROOT="$ORCH_ROOT" bash -c '. "$ORCH_ROOT/lib/substrate/messaging.sh"; _sock_candidates 999999999')"
+[ "$(printf '%s' "$out" | head -1)" = "/run/user/4242/cc-socks" ]; chk $? "our XDG_RUNTIME_DIR first when ORCH_SOCKET_DIR is unset"
+contains "$out" "/tmp/cc-socks" "and /tmp/cc-socks last"
+[ "$(printf '%s' "$out" | tail -1)" = "/tmp/cc-socks" ]; chk $? "literally last"
+out="$(ORCH_SOCKET_DIR="$WORK/socks" XDG_RUNTIME_DIR=/run/user/4242 ORCH_ROOT="$ORCH_ROOT" bash -c '. "$ORCH_ROOT/lib/substrate/messaging.sh"; _sock_candidates 999999999')"
+[ "$(printf '%s' "$out" | head -1)" = "$WORK/socks" ]; chk $? "ORCH_SOCKET_DIR, when set, is searched first"
+[ "$(printf '%s' "$out" | sort | uniq -d | grep -c .)" = "0" ]; chk $? "no directory is listed twice"
+out="$(unset ORCH_SOCKET_DIR; XDG_RUNTIME_DIR=/run/user/4242 ORCH_ROOT="$ORCH_ROOT" bash -c '. "$ORCH_ROOT/lib/substrate/messaging.sh"; _sock_for 999999999')"
+[ "$out" = "/run/user/4242/cc-socks/999999999.sock" ]; chk $? "a peer with no socket anywhere is reported at the first candidate"
+out="$(PATH="$WORK/bin:$PATH" FAKE_ROSTER="$WORK/roster-mixed.json" ORCH_SOCKET_DIR="$WORK/socks" ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1)"
+contains "$out" "no messaging socket in any of: $WORK/socks" "doctor names every directory it searched"
+contains "$(printf '%s' "$out" | grep 'no messaging socket')" "/tmp/cc-socks" "including the default"
+
 finish substrate

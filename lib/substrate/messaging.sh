@@ -240,6 +240,36 @@ orch_sub_set_gate() {  # orch_sub_set_gate <feature> <gate> <met|open> [sha]
 
 _sock_dir() { printf '%s' "${ORCH_SOCKET_DIR:-/tmp/cc-socks}"; }
 
+# Claude Code picks the socket directory per process: $XDG_RUNTIME_DIR/cc-socks
+# when that process has XDG_RUNTIME_DIR set, /tmp/cc-socks when it does not
+# (the binary's own allowlist covers both, and it replies across them). An
+# SSH login sets it; a VS Code server does not; so one host can have peers in
+# two directories, and a single global path reports half of them missing.
+# Found live, on a mixed-launcher host. The directories searched for a peer,
+# in order: ORCH_SOCKET_DIR when set; the peer's own XDG_RUNTIME_DIR where
+# /proc lets us read it; ours; /run/user/<uid>; /tmp.
+_sock_candidates() {  # _sock_candidates <pid> -> one directory per line, deduplicated
+  local pid="$1" peer_xdg
+  peer_xdg="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^XDG_RUNTIME_DIR=//p' | head -1)"
+  {
+    [ -z "${ORCH_SOCKET_DIR:-}" ] || printf '%s\n' "$ORCH_SOCKET_DIR"
+    [ -z "$peer_xdg" ] || printf '%s/cc-socks\n' "$peer_xdg"
+    [ -z "${XDG_RUNTIME_DIR:-}" ] || printf '%s/cc-socks\n' "$XDG_RUNTIME_DIR"
+    printf '/run/user/%s/cc-socks\n' "$(id -u 2>/dev/null || printf 0)"
+    printf '/tmp/cc-socks\n'
+  } | awk '!seen[$0]++'
+}
+
+# The peer's socket if it exists in any candidate directory, else the path
+# it was expected at.
+_sock_for() {  # _sock_for <pid>
+  local pid="$1" d
+  for d in $(_sock_candidates "$pid"); do
+    [ -S "$d/$pid.sock" ] && { printf '%s/%s.sock' "$d" "$pid"; return 0; }
+  done
+  printf '%s/%s.sock' "$(_sock_candidates "$pid" | head -1)" "$pid"
+}
+
 # Permission-mode class of a running session, derived from how it was invoked.
 #
 # `claude agents --json` does not report permission mode - verified on 2.1.228,
@@ -286,8 +316,8 @@ orch_sub_probe() {
   for pid in $(printf '%s' "$roster" | jq -r '.[].pid // empty' 2>/dev/null); do
     peers="$(printf '%s' "$peers" | jq -c \
       --argjson entry "$(printf '%s' "$roster" | jq -c --argjson p "$pid" '.[] | select(.pid==$p)')" \
-      --arg sock "$(_sock_dir)/$pid.sock" \
-      --arg sock_present "$([ -S "$(_sock_dir)/$pid.sock" ] && echo true || echo false)" \
+      --arg sock "$(_sock_for "$pid")" \
+      --arg sock_present "$([ -S "$(_sock_for "$pid")" ] && echo true || echo false)" \
       --arg cwd_present "$([ -d "$(printf '%s' "$roster" | jq -r --argjson p "$pid" '.[] | select(.pid==$p) | .cwd // ""')" ] && echo true || echo false)" \
       --arg pm "$(_pm_class "$pid")" \
       '. + [$entry + {socket:$sock, socket_present:($sock_present=="true"),
@@ -304,6 +334,7 @@ orch_sub_probe() {
     --argjson task_list_exists "$([ -d "$dir" ] && echo true || echo false)" \
     --argjson lock_present "$([ -e "$dir/.lock" ] && echo true || echo false)" \
     --arg socket_dir "$(_sock_dir)" \
+    --arg socket_dirs "$(_sock_candidates "${self_pid:-$$}" | tr '\n' ' ' | sed 's/ $//')" \
     --arg self_socket "${CLAUDE_CODE_MESSAGING_SOCKET:-}" \
     --argjson self_socket_present "$([ -S "${CLAUDE_CODE_MESSAGING_SOCKET:-/nonexistent}" ] && echo true || echo false)" \
     --arg cross_session_inbound "$(_setting crossSessionInbound)" \
