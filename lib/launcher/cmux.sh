@@ -39,13 +39,70 @@ _cmux_ws_title() {  # _cmux_ws_title [KEY=VALUE...]
   printf 'orch:run'
 }
 
-_cmux_ws_uuid() {  # _cmux_ws_uuid <title> -> workspace uuid, or empty
-  cmux workspace list --id-format both 2>/dev/null \
-    | grep -F " $1" | head -1 | grep -o "$_UUID_RE" | head -1
+# Every cmux call goes through here. The remote Linux shim reports an
+# unknown command as "ERROR: ..." on stdout with exit 0, so an exit code
+# proves nothing and `2>/dev/null || fallback` guards never fire — the
+# version probe (#12) and workspace creation (#13) both half-missed that.
+# Output is the verdict: error text is a failure, whatever the exit code.
+_cmux_try() {  # _cmux_try <args...> -> stdout, rc 1 on failure or error text
+  local out rc
+  out="$(cmux "$@" 2>/dev/null)"; rc=$?
+  [ "$rc" = 0 ] || return 1
+  case "$out" in ERROR*|Error*|error:*|*"Unknown command"*|*"unknown command"*) return 1 ;; esac
+  printf '%s\n' "$out"
 }
 
-_cmux_alive() {  # _cmux_alive <surface-uuid>
-  [ -n "$1" ] && cmux tree --all --id-format both 2>/dev/null | grep -q "$1"
+# The first command form that answers. The native CLI and the shim name the
+# same operations differently (workspace list / list-workspaces; tree /
+# list-surfaces), so each lookup lists its forms and takes the first that
+# is not an error.
+_cmux_first() {  # _cmux_first "<form>" "<form>"...
+  local f
+  # shellcheck disable=SC2086 — each form is word-split on purpose
+  for f in "$@"; do _cmux_try $f && return 0; done
+  return 1
+}
+
+# An id from a line of cmux output: a UUID when there is one (native, with
+# --id-format both), else the short ref (workspace:N, surface:N, pane:N).
+_cmux_id_in() {  # _cmux_id_in <kind> <text>
+  local id
+  id="$(printf '%s' "$2" | grep -o "$_UUID_RE" | head -1)"
+  [ -n "$id" ] || id="$(printf '%s' "$2" | grep -oE "$1:[0-9]+" | head -1)"
+  printf '%s' "$id"
+}
+
+_cmux_ws_list() {
+  _cmux_first "workspace list --id-format both" "list-workspaces --id-format both" "list-workspaces" "workspace list"
+}
+
+# Workspace id by exact title: the line's text with its ids removed must be
+# the title. A substring match found "--name orch:run" — the shim's own
+# mis-titled workspace — when looking for "orch:run".
+_cmux_ws_uuid() {  # _cmux_ws_uuid <title> -> workspace id, or empty
+  local line rest
+  _cmux_ws_list | while IFS= read -r line; do
+    rest="$(printf '%s' "$line" | sed -e "s/$_UUID_RE//g" -e 's/workspace:[0-9]*//g' -e 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ "$rest" = "$1" ] || continue
+    _cmux_id_in workspace "$line"; printf '\n'; break
+  done | head -1
+}
+
+# The tree of one workspace, or of everything, in whichever form answers.
+_cmux_tree() {  # _cmux_tree [--workspace ID | --all]
+  _cmux_first "tree $* --id-format both" "tree $*" "list-surfaces $* --id-format both" "list-surfaces $*" "list-panes $*" \
+    || { [ "$#" -gt 0 ] && _cmux_first "list-surfaces" "list-panes"; }
+}
+
+_cmux_surfaces_in() {  # _cmux_surfaces_in <workspace-id> -> one surface id per line
+  local line
+  _cmux_tree --workspace "$1" | grep -iE 'surface|pane' | while IFS= read -r line; do
+    _cmux_id_in surface "$line"; printf '\n'
+  done | grep .
+}
+
+_cmux_alive() {  # _cmux_alive <surface-id>
+  [ -n "$1" ] && _cmux_tree --all | grep -qF "$1"
 }
 
 # Map bookkeeping: name -> surface uuid -> workspace uuid -> workspace title.
@@ -78,7 +135,7 @@ _cmux_map_del() {  # _cmux_map_del <name>
 
 orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   local role="$1" name="$2" cwd="$3"; shift 3
-  local wst wsuuid cmd kv envprefix='' out suuid pane_count dir
+  local wst wsuuid cmd kv envprefix='' out suuid pane_count dir stray
 
   # A live pane under this name is a session already doing this job; a second
   # would fight it for the same tasks. rc=3 = present, not newly spawned.
@@ -102,25 +159,30 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
     # new-workspace echoes no UUID whatever --id-format says, so the
     # workspace is looked up by title; the flag form is tried first (native),
     # the positional form second (the shim).
-    cmux new-workspace --name "$wst" >/dev/null 2>&1 || true
+    _cmux_try new-workspace --name "$wst" >/dev/null || true
     wsuuid="$(_cmux_ws_uuid "$wst")"
     if [ -z "$wsuuid" ]; then
-      cmux new-workspace "$wst" >/dev/null 2>&1 || true
+      # The shim, given the flag form, makes a workspace titled with the
+      # whole argv. Take that one back before trying its own form.
+      stray="$(_cmux_ws_uuid "--name $wst")"
+      [ -z "$stray" ] || _cmux_try close-workspace --workspace "$stray" >/dev/null || true
+      _cmux_try new-workspace "$wst" >/dev/null || true
       wsuuid="$(_cmux_ws_uuid "$wst")"
     fi
-    [ -n "$wsuuid" ] || { warn "cmux could not create workspace $wst, or created it under another title (cmux workspace list)"; return 1; }
-    suuid="$(cmux tree --workspace "$wsuuid" --id-format both 2>/dev/null \
-      | grep 'surface surface:' | head -1 | grep -o "$_UUID_RE" | head -1)"
+    [ -n "$wsuuid" ] || { warn "cmux could not create workspace $wst, or created it under another title (cmux list-workspaces)"; return 1; }
+    suuid="$(_cmux_surfaces_in "$wsuuid" | head -1)"
     [ -n "$suuid" ] || { warn "workspace $wst has no identifiable surface"; return 1; }
   else
     # Crew-mates tile into the existing workspace. Direction alternates so
     # four panes make a grid instead of four slivers in a row.
-    pane_count="$(cmux tree --workspace "$wsuuid" 2>/dev/null | grep -c 'pane pane:')"
+    pane_count="$(_cmux_surfaces_in "$wsuuid" | grep -c .)"
     dir='right'; [ "${pane_count:-1}" -gt 1 ] && dir='down'
-    out="$(cmux new-split "$dir" --workspace "$wsuuid" --id-format both 2>/dev/null)" \
+    out="$(_cmux_first "new-split $dir --workspace $wsuuid --id-format both" "new-split $dir --workspace $wsuuid")" \
       || { warn "cmux could not split $wst for $name"; return 1; }
-    suuid="$(printf '%s' "$out" | grep -o "$_UUID_RE" | head -1)"
-    [ -n "$suuid" ] || { warn "split created in $wst but its surface has no uuid"; return 1; }
+    suuid="$(_cmux_id_in surface "$out")"
+    # A split that echoes no id is found as the newest surface in the tree.
+    [ -n "$suuid" ] || suuid="$(_cmux_surfaces_in "$wsuuid" | tail -1)"
+    [ -n "$suuid" ] || { warn "split created in $wst but its surface has no id"; return 1; }
   fi
   # Every pane opens as a plain shell: cwd and environment ride the command
   # line. send delivers text WITHOUT executing it — found live, when two crew
@@ -129,9 +191,9 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   for kv in "$@"; do
     case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
   done
-  cmux send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null 2>&1 \
+  _cmux_try send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null \
     || { warn "could not start $name in its pane"; return 1; }
-  cmux send-key --surface "$suuid" enter >/dev/null 2>&1 \
+  _cmux_try send-key --surface "$suuid" enter >/dev/null \
     || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
 
   _cmux_map_put "$name" "$suuid" "$wsuuid" "$wst"
@@ -147,10 +209,10 @@ orch_lnch_kill() {  # <name>
   # cmux refuses to close a workspace's last surface (invalid_state), so the
   # final crew member takes the whole workspace with it — which is also the
   # right reading of what killing the last agent means.
-  if [ "$(cmux tree --workspace "$wsuuid" 2>/dev/null | grep -c 'surface surface:')" -le 1 ]; then
-    cmux close-workspace --workspace "$wsuuid" >/dev/null 2>&1 || return 1
+  if [ "$(_cmux_surfaces_in "$wsuuid" | grep -c .)" -le 1 ]; then
+    _cmux_try close-workspace --workspace "$wsuuid" >/dev/null || return 1
   else
-    cmux close-surface --surface "$suuid" --workspace "$wsuuid" >/dev/null 2>&1 || return 1
+    _cmux_try close-surface --surface "$suuid" --workspace "$wsuuid" >/dev/null || return 1
   fi
   _cmux_map_del "$1"
   printf 'closed %s\n' "$1" >&2
@@ -159,8 +221,8 @@ orch_lnch_kill() {  # <name>
 orch_lnch_peek() {  # <name> [lines]
   local hit
   hit="$(_cmux_map_get "$1")" || { warn "no live pane for $1"; return 1; }
-  cmux read-screen --surface "$(printf '%s' "$hit" | cut -d' ' -f1)" \
-    --scrollback --lines "${2:-60}" 2>/dev/null
+  _cmux_first "read-screen --surface $(printf '%s' "$hit" | cut -d' ' -f1) --scrollback --lines ${2:-60}" \
+               "read-screen --surface $(printf '%s' "$hit" | cut -d' ' -f1)"
 }
 
 orch_lnch_list() {
@@ -172,7 +234,7 @@ orch_lnch_list() {
 }
 
 orch_lnch_notify() {  # <title> <body>
-  cmux notify --title "$1" --body "${2:-}" >/dev/null 2>&1
+  _cmux_try notify --title "$1" --body "${2:-}" >/dev/null
 }
 
 # No version probe: the remote Python shim has no `version` command and
@@ -180,7 +242,7 @@ orch_lnch_notify() {  # <title> <body>
 # version. Reachable and the session list are what doctor decides on.
 orch_lnch_probe() {
   local ok=false ver=''
-  if cmux ping >/dev/null 2>&1; then ok=true; fi
+  if _cmux_try ping >/dev/null; then ok=true; fi
   jq -n -c --arg launcher cmux --argjson reachable "$ok" --arg version "$ver" \
     --argjson sessions "$(orch_lnch_list | jq -R -s -c 'split("\n") | map(select(length>0))')" \
     '$ARGS.named'
