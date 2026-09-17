@@ -78,7 +78,7 @@ _cmux_map_del() {  # _cmux_map_del <name>
 
 orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   local role="$1" name="$2" cwd="$3"; shift 3
-  local wst wsuuid cmd kv envargs='' envprefix='' out suuid pane_count dir
+  local wst wsuuid cmd kv envprefix='' out suuid pane_count dir
 
   # A live pane under this name is a session already doing this job; a second
   # would fight it for the same tasks. rc=3 = present, not newly spawned.
@@ -92,14 +92,23 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   cmd="$(launcher_claude_cmd "$role" "$name")"
 
   if [ -z "$wsuuid" ]; then
-    # First agent in: create the workspace around it. new-workspace does not
-    # echo a UUID whatever --id-format says, so it is looked up by title.
-    for kv in "$@"; do case "$kv" in *=*) envargs="$envargs --env $kv" ;; esac; done
-    # shellcheck disable=SC2086 — envargs is deliberately word-split
-    cmux new-workspace --name "$wst" --cwd "$cwd" $envargs --command "$cmd" >/dev/null 2>&1 \
-      || { warn "cmux could not create workspace $wst"; return 1; }
+    # First agent in: create the workspace, by name and nothing else. The
+    # native CLI takes --cwd, --env and --command here; the remote Linux
+    # shim implements new_workspace with a name only, and given the flag
+    # form it made a workspace titled with the whole argv and ran nothing —
+    # found live, with `team start` reporting success over a director that
+    # never launched. The pane starts as a plain shell either way, and the
+    # command goes in the same way a crew-mate's does: typed, then Enter.
+    # new-workspace echoes no UUID whatever --id-format says, so the
+    # workspace is looked up by title; the flag form is tried first (native),
+    # the positional form second (the shim).
+    cmux new-workspace --name "$wst" >/dev/null 2>&1 || true
     wsuuid="$(_cmux_ws_uuid "$wst")"
-    [ -n "$wsuuid" ] || { warn "workspace $wst created but not found by title"; return 1; }
+    if [ -z "$wsuuid" ]; then
+      cmux new-workspace "$wst" >/dev/null 2>&1 || true
+      wsuuid="$(_cmux_ws_uuid "$wst")"
+    fi
+    [ -n "$wsuuid" ] || { warn "cmux could not create workspace $wst, or created it under another title (cmux workspace list)"; return 1; }
     suuid="$(cmux tree --workspace "$wsuuid" --id-format both 2>/dev/null \
       | grep 'surface surface:' | head -1 | grep -o "$_UUID_RE" | head -1)"
     [ -n "$suuid" ] || { warn "workspace $wst has no identifiable surface"; return 1; }
@@ -112,18 +121,18 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
       || { warn "cmux could not split $wst for $name"; return 1; }
     suuid="$(printf '%s' "$out" | grep -o "$_UUID_RE" | head -1)"
     [ -n "$suuid" ] || { warn "split created in $wst but its surface has no uuid"; return 1; }
-    # A split opens a plain shell: environment rides the command line.
-    for kv in "$@"; do
-      case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
-    done
-    # send delivers text WITHOUT executing it — found live, when two crew
-    # panes sat one keypress from starting while the roster showed only the
-    # first agent. The Enter is its own call, and required.
-    cmux send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null 2>&1 \
-      || { warn "could not start $name in its pane"; return 1; }
-    cmux send-key --surface "$suuid" enter >/dev/null 2>&1 \
-      || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
   fi
+  # Every pane opens as a plain shell: cwd and environment ride the command
+  # line. send delivers text WITHOUT executing it — found live, when two crew
+  # panes sat one keypress from starting while the roster showed only the
+  # first agent. The Enter is its own call, and required.
+  for kv in "$@"; do
+    case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
+  done
+  cmux send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null 2>&1 \
+    || { warn "could not start $name in its pane"; return 1; }
+  cmux send-key --surface "$suuid" enter >/dev/null 2>&1 \
+    || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
 
   _cmux_map_put "$name" "$suuid" "$wsuuid" "$wst"
   printf 'spawned %s as a pane in cmux workspace `%s`\n' "$name" "$wst" >&2
