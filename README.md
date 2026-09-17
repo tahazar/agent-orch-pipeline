@@ -671,7 +671,7 @@ unique yield after 20 features, delete it and say so.**
 bash test/run-all.sh
 ```
 
-1157 assertions across twenty-one suites. No Claude session, no API key, no network.
+1160 assertions across twenty-one suites. No Claude session, no API key, no network.
 Each suite builds a throwaway git repo and its own task-list root, so nothing
 touches `~/.claude` and nothing is left behind.
 

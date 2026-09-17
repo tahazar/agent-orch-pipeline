@@ -168,8 +168,10 @@ doctor_run() {
   lname="$(printf '%s' "$lp" | jq -r '.launcher // "?"')"
   case "$lname" in
     cmux)
-      if [ "$(printf '%s' "$lp" | jq -r '.reachable')" = "true" ]; then
-        _d_ok "cmux — sessions are persistent, named, and watchable$(printf '%s' "$lp" | jq -r 'if (.version // "") != "" then " (" + .version + ")" else "" end')"
+      if [ "$(printf '%s' "$lp" | jq -r '.reachable')" = "true" ] && [ "$(printf '%s' "$lp" | jq -r '.listing // false')" = "true" ]; then
+        _d_ok "cmux — sessions are persistent, named, and watchable$(printf '%s' "$lp" | jq -r 'if (.version // "") != "" then " (" + .version + ")" else "" end') ($(printf '%s' "$lp" | jq -r '.titles // 0') workspace(s) listed)"
+      elif [ "$(printf '%s' "$lp" | jq -r '.reachable')" = "true" ]; then
+        _d_bad "cmux answers ping, but no workspace listing form answers (workspace list / list-workspaces) — \`orch spawn\` cannot find what it creates. Set ORCH_LAUNCHER=bg, or send \`cmux list-workspaces\` output upstream"
       else
         _d_bad "cmux is on PATH but its socket is not answering; \`orch spawn\` will fail. Start cmux, or set ORCH_LAUNCHER=bg"
       fi

@@ -27,7 +27,7 @@ export CMUX_QUIET=1
 
 _cmux_map() { printf '%s/.orch/cmux-panes' "${ORCH_REPO:-.}"; }
 
-_UUID_RE='[0-9A-Fa-f-]\{36\}'
+_UUID_RE='[0-9A-Fa-f]\{8\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{4\}-[0-9A-Fa-f]\{12\}'
 
 # Workspace title for a spawn: the feature's crew tiles together; run-scoped
 # roles (no ORCH_FEATURE in their env) share orch:run.
@@ -63,13 +63,27 @@ _cmux_first() {  # _cmux_first "<form>" "<form>"...
   return 1
 }
 
-# An id from a line of cmux output: a UUID when there is one (native, with
-# --id-format both), else the short ref (workspace:N, surface:N, pane:N).
+# An id from a line of cmux output: a UUID when there is one (native with
+# --id-format both; the shim always), else the short ref (workspace:N,
+# surface:N), else the shim's leading index ("2: ..." -> kind:2).
 _cmux_id_in() {  # _cmux_id_in <kind> <text>
   local id
   id="$(printf '%s' "$2" | grep -o "$_UUID_RE" | head -1)"
   [ -n "$id" ] || id="$(printf '%s' "$2" | grep -oE "$1:[0-9]+" | head -1)"
+  [ -n "$id" ] || id="$(printf '%s' "$2" | sed -n "s/^[[:space:]]*\*\{0,1\}[[:space:]]*\([0-9]\{1,\}\):.*/$1:\1/p")"
   printf '%s' "$id"
+}
+
+# A listing line with everything that is not the title removed: UUIDs and
+# short refs (native), and the shim's "* 1: " index prefix and the "◆" it
+# puts on the current workspace — seen live:
+#   0: B2EEA155-... ~
+#   * 1: 36FD19FE-... ◆ LasiAppCDK
+#     2: CB65437A-... kiro-cli
+_cmux_title_of() {  # stdin -> title
+  sed -e "s/$_UUID_RE//g" -e 's/workspace:[0-9]*//g' -e 's/surface:[0-9]*//g' \
+      -e 's/^[[:space:]]*\*[[:space:]]*//' -e 's/^[[:space:]]*[0-9]\{1,\}:[[:space:]]*//' \
+      -e 's/◆//g' -e 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
 _cmux_ws_list() {
@@ -82,7 +96,7 @@ _cmux_ws_list() {
 _cmux_ws_uuid() {  # _cmux_ws_uuid <title> -> workspace id, or empty
   local line rest
   _cmux_ws_list | while IFS= read -r line; do
-    rest="$(printf '%s' "$line" | sed -e "s/$_UUID_RE//g" -e 's/workspace:[0-9]*//g' -e 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    rest="$(printf '%s' "$line" | _cmux_title_of)"
     [ "$rest" = "$1" ] || continue
     _cmux_id_in workspace "$line"; printf '\n'; break
   done | head -1
@@ -94,9 +108,17 @@ _cmux_tree() {  # _cmux_tree [--workspace ID | --all]
     || { [ "$#" -gt 0 ] && _cmux_first "list-surfaces" "list-panes"; }
 }
 
+# The surfaces of a workspace. The native tree names them ("surface
+# surface:1 <uuid>"); the shim's listing is the same shape as its workspace
+# listing, an index and an id per line. Lines that name a surface or pane
+# win when there are any; otherwise every line that carries an id counts.
 _cmux_surfaces_in() {  # _cmux_surfaces_in <workspace-id> -> one surface id per line
-  local line
-  _cmux_tree --workspace "$1" | grep -iE 'surface|pane' | while IFS= read -r line; do
+  local out lines line
+  out="$(_cmux_tree --workspace "$1")"
+  lines="$(printf '%s\n' "$out" | grep -iE 'surface|pane')"
+  [ -n "$lines" ] || lines="$(printf '%s\n' "$out" | grep -E "$_UUID_RE|^[[:space:]]*\*?[[:space:]]*[0-9]+:")"
+  printf '%s\n' "$lines" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
     _cmux_id_in surface "$line"; printf '\n'
   done | grep .
 }
@@ -240,10 +262,16 @@ orch_lnch_notify() {  # <title> <body>
 # No version probe: the remote Python shim has no `version` command and
 # writes its "Unknown command" to stdout, which doctor then printed as the
 # version. Reachable and the session list are what doctor decides on.
+# A green launcher line must mean spawning can work, not that the socket
+# answers ping: a title round-trip through the listing is what spawn needs,
+# so the probe reports whether any listing form answers and parses.
 orch_lnch_probe() {
-  local ok=false ver=''
+  local ok=false ver='' listing=false titles=0
   if _cmux_try ping >/dev/null; then ok=true; fi
-  jq -n -c --arg launcher cmux --argjson reachable "$ok" --arg version "$ver" \
+  if [ "$ok" = true ] && _cmux_ws_list >/dev/null 2>&1; then
+    listing=true; titles="$(_cmux_ws_list | _cmux_title_of | grep -c .)"
+  fi
+  jq -n -c --arg launcher cmux --argjson reachable "$ok" --argjson listing "$listing" --argjson titles "${titles:-0}" --arg version "$ver" \
     --argjson sessions "$(orch_lnch_list | jq -R -s -c 'split("\n") | map(select(length>0))')" \
     '$ARGS.named'
 }
