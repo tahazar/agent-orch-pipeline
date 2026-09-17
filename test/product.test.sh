@@ -65,7 +65,7 @@ cat > docs/product/stories/S001-export-week.md <<'MD'
 # S001 Export the week as CSV
 persona: maya
 tier: standard
-metric: exports per active user per week rises
+metric: exports_per_user up
 
 As Maya, I want last week's numbers as a CSV in one click, so that Monday
 takes ten minutes instead of an hour.
@@ -202,6 +202,36 @@ contains "$out" "F002-schedule-export  S002  as sam (hypothesized)   blocked   E
 contains "$out" "waiting for F001-export-week" "and says what it waits for"
 contains "$out" "orch product keep F001-export-week" "with the verbs"
 
+printf '\nthe metrics loop, before the landing:\n'
+cat > docs/product/metrics.md <<'MD'
+# Metrics
+- exports_per_user: up — exports per weekly active user
+- error_rate: down guardrail — 5xx per 1k requests
+- p95_ms: down guardrail holdout — dashboard p95
+- not a metric line
+MD
+git add -A && git commit -q -m "metrics"
+out="$("$ORCH" product metrics 2>&1)"; rc=$?
+chk_rc 0 "$rc" "metrics renders with no readings"
+contains "$out" "exports_per_user     up   no reading" "a metric with no reading says so"
+contains "$out" "p95_ms               down guardrail HOLDOUT" "the holdout is marked for the human"
+contains "$out" "none kept yet" "no hypothesis to judge yet"
+"$ORCH" run --feature _orch --label metrics -- sh -c 'printf "exports_per_user 12\nerror_rate 3\np95_ms 400\nbad line here\n"' >/dev/null 2>&1
+contains "$("$ORCH" product metrics 2>&1)" "exports_per_user     up   12 at" "an attested reading is read"
+out="$(read_as "$MAIN/docs/product/metrics.md" code-reviewer walkthrough)"; rc=$?
+chk_rc 2 "$rc" "the walkthrough may not read the metric definitions"
+cat > docs/product/stories/S004-faster-dashboard.md <<'MD'
+# S004 A faster dashboard
+persona: maya
+metric: p95_ms down
+MD
+git add -A && git commit -q -m "S004"
+out="$("$ORCH" product plan --story S004 2>&1)"
+contains "$out" "targets p95_ms, a holdout metric; skipped" "a story may not target the holdout metric"
+rm docs/product/stories/S004-faster-dashboard.md; git add -A && git commit -q -m "drop S004"
+"$ORCH" product freeze --why "S004 withdrawn" >/dev/null 2>&1
+sleep 1
+
 printf '\nkeep lands it:\n'
 out="$("$ORCH" product keep F001-export-week 2>&1)"; rc=$?
 chk_rc 0 "$rc" "keep lands F001"
@@ -215,6 +245,24 @@ git add -A >/dev/null 2>&1; git commit -q -m "F001 artifacts" >/dev/null 2>&1
 out="$("$ORCH" product night 2>&1)"
 contains "$out" "1 crew(s) started" "the next night starts F002, whose dependency has landed"
 contains "$("$ORCH" product trace 2>&1 | grep '^S002')" "running" "S002 is running"
+
+printf '\nthe metrics loop, after the landing:\n'
+sleep 1
+"$ORCH" run --feature _orch --label metrics -- sh -c 'printf "exports_per_user 13.4\nerror_rate 3.5\np95_ms 390\n"' >/dev/null 2>&1
+out="$("$ORCH" product metrics 2>&1)"; rc=$?
+chk_rc 0 "$rc" "metrics renders"
+contains "$out" "F001-export-week           S001  confirmed exports_per_user up: 12 -> 13.4 (+11.7%)" "S001's hypothesis is confirmed by the readings either side of the landing"
+contains "$out" "error_rate           guardrail (down)  3 -> 3.5  +16.7%  BREACH" "the error-rate guardrail breached"
+contains "$out" "p95_ms               guardrail (down)  400 -> 390  -2.5%" "the latency guardrail held"
+contains "$out" "maya: 1 confirmed hypothesis(es), none refuted — propose  evidence: measured" "a confirmed hypothesis proposes measured evidence for the persona"
+f="$("$ORCH" findings deliver _orch 2>&1)"
+contains "$f" "guardrail error_rate moved the wrong way: 3 -> 3.5 (+16.7%)" "the breach is a finding on the run"
+contains "$f" "last landing before it: F001-export-week" "named after the feature that landed before it"
+contains "$f" "[blocking]" "blocking"
+"$ORCH" product metrics >/dev/null 2>&1
+[ "$("$ORCH" findings deliver _orch 2>&1 | grep -c 'raised by metrics')" = "1" ]; chk $? "raised once"
+contains "$("$ORCH" product morning 2>&1)" "metric: confirmed exports_per_user up: 12 -> 13.4 (+11.7%)" "the morning shows the verdict on the landed feature"
+contains "$("$ORCH" product trace 2>&1)" "frozen: as of" "metrics.md is frozen with the rest"
 
 printf '\nexploratory, iterate, discard:\n'
 out="$("$ORCH" product keep F002-schedule-export 2>&1)"; rc=$?

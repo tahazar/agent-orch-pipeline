@@ -83,7 +83,7 @@ esac
 if [ "$role" = code-reviewer ] && [ "${ORCH_LENS:-}" = walkthrough ]; then
   . "$ORCH_HOME/lib/sensors.sh" 2>/dev/null || true
   deny=''
-  case "$rel" in docs/product/*) exit 0 ;; docs/features/*) deny='a feature artifact' ;; esac
+  case "$rel" in docs/product/metrics.md) deny='the metric definitions — the holdout metric is the human'"'"'s number' ;; docs/product/*) exit 0 ;; docs/features/*) deny='a feature artifact' ;; esac
   [ -n "$deny" ] || { declare -f _sensor_is_source >/dev/null 2>&1 && { _sensor_is_source "$rel" || _sensor_is_test "$rel"; } && deny='source or a test'; }
   [ -n "$deny" ] || exit 0
   ORCH_LEDGER_FEATURE="${ORCH_FEATURE:-$(orch_current_feature)}" \

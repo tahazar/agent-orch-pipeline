@@ -69,4 +69,27 @@ contains "$out" "no tier yet" "a missing tier is called out, not omitted"
 out="$("$ORCH" status show F041-bare)"
 contains "$out" "unconfirmed, no crew" "a recommended-but-unconfirmed tier says exactly that"
 
+
+printf '\ndead ends are decisions with a kind, and they travel with the orders:\n'
+out="$("$ORCH" decision record F040-status --kind dead-end --text "cache the parsed header" 2>&1)"; rc=$?
+chk_rc 1 "$rc" "a dead end without a reason is refused"
+out="$("$ORCH" decision record F040-status --kind dead-end --text "cache the parsed header" --why "the header is re-read per row; caching moved the cost" --evidence perf 2>&1)"; rc=$?
+chk_rc 0 "$rc" "a dead end with a reason records"
+contains "$out" "dead end #3 recorded" "numbered with the decisions"
+contains "$out" "told not to retry it" "and says what happens next"
+out="$("$ORCH" decision record F040-status --kind guess --text "x" 2>&1)"; rc=$?
+chk_rc 1 "$rc" "an unknown kind is refused"
+out="$("$ORCH" decision list F040-status 2>&1)"
+contains "$out" "#3  DEAD END  cache the parsed header" "list marks it"
+contains "$out" "(attested: perf)" "with the run that showed it"
+out="$("$ORCH" decision deadends F040-status 2>&1)"
+contains "$out" "do NOT retry them" "deadends renders the paragraph"
+contains "$out" "(#3) cache the parsed header — the header is re-read per row; caching moved the cost [attested run: perf]" "verbatim, with the reason and the evidence"
+not_contains "$out" "reject rows" "and not the ordinary decisions"
+out="$(ORCH_HOME="$ORCH_ROOT" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_orders developer F040-status' 2>/dev/null)"
+contains "$out" "Dead ends already on the ledger" "the developer's orders carry it"
+contains "$out" "cache the parsed header" "verbatim"
+out="$(ORCH_HOME="$ORCH_ROOT" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_orders test-engineer F040-status' 2>/dev/null)"
+not_contains "$out" "Dead ends" "the test-engineer's do not"
+
 finish status
