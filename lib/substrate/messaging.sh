@@ -326,7 +326,7 @@ orch_sub_probe() {
 
   jq -n \
     --arg substrate messaging \
-    --arg cli "$(claude --version 2>/dev/null | awk '{print $1}')" \
+    --arg cli "$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)" \
     --arg cli_verified "$ORCH_VERIFIED_CLI" \
     --arg task_list_id "$tl" \
     --arg task_list_dir "$dir" \

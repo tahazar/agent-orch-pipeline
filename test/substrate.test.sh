@@ -145,4 +145,15 @@ out="$(PATH="$WORK/bin:$PATH" FAKE_ROSTER="$WORK/roster-mixed.json" ORCH_SOCKET_
 contains "$out" "no messaging socket in any of: $WORK/socks" "doctor names every directory it searched"
 contains "$(printf '%s' "$out" | grep 'no messaging socket')" "/tmp/cc-socks" "including the default"
 
+
+printf '\nthe CLI version is the number, wherever the CLI puts it:\n'
+# `claude --version` has printed "2.1.228 (Claude Code)"; a later CLI led
+# with the word, and doctor reported "claude claude".
+mkdir -p "$WORK/bin2"
+printf '#!/bin/bash\ncase "${1:-}" in --version) echo "claude 2.1.301 (Claude Code)" ;; agents) echo "[]" ;; esac\n' > "$WORK/bin2/claude"
+chmod +x "$WORK/bin2/claude"
+out="$(PATH="$WORK/bin2:$PATH" ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1)"
+contains "$out" "claude 2.1.301, but orch's substrate facts were verified on" "the number is read from a version line that leads with the word"
+not_contains "$out" "claude claude" "and never the word"
+
 finish substrate
