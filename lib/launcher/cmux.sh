@@ -166,9 +166,12 @@ orch_lnch_notify() {  # <title> <body>
   cmux notify --title "$1" --body "${2:-}" >/dev/null 2>&1
 }
 
+# No version probe: the remote Python shim has no `version` command and
+# writes its "Unknown command" to stdout, which doctor then printed as the
+# version. Reachable and the session list are what doctor decides on.
 orch_lnch_probe() {
   local ok=false ver=''
-  if cmux ping >/dev/null 2>&1; then ok=true; ver="$(cmux version 2>/dev/null | head -1)"; fi
+  if cmux ping >/dev/null 2>&1; then ok=true; fi
   jq -n -c --arg launcher cmux --argjson reachable "$ok" --arg version "$ver" \
     --argjson sessions "$(orch_lnch_list | jq -R -s -c 'split("\n") | map(select(length>0))')" \
     '$ARGS.named'

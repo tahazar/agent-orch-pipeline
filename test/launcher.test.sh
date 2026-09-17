@@ -192,4 +192,23 @@ chk $? "kickoff is a ledger event"
 out="$("$ORCH" kickoff --request "don't pad the rows; reject them" 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a request with an apostrophe survives shell quoting"
 
+
+printf '\nthe cmux probe asks only what the shim answers:\n'
+# The remote Python shim has no `version` command and writes its complaint
+# to stdout; the probe must not read that as a version.
+mkdir -p "$WORK/fakebin"
+cat > "$WORK/fakebin/cmux" <<'SH'
+#!/bin/bash
+case "${1:-}" in
+  ping) echo PONG ;;
+  version) echo "ERROR: Unknown command 'version'"; exit 0 ;;
+  *) echo "ERROR: Unknown command '$1'"; exit 0 ;;
+esac
+SH
+chmod +x "$WORK/fakebin/cmux"
+out="$(PATH="$WORK/fakebin:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_probe' 2>/dev/null)"
+[ "$(printf '%s' "$out" | jq -r .reachable)" = "true" ]; chk $? "ping answers: reachable"
+not_contains "$out" "Unknown command" "and no shim error is reported as a version"
+[ "$(printf '%s' "$out" | jq -r '.version // ""')" = "" ]; chk $? "version is empty rather than wrong"
+
 finish launcher

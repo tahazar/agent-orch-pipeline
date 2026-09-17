@@ -107,7 +107,7 @@ doctor_run() {
       _d_ok "every peer's cwd is reachable from here"
     fi
     if [ "$(printf '%s' "$peers" | jq '[.[] | select(.socket_present | not)] | length')" != "0" ]; then
-      _d_bad "$(printf '%s' "$peers" | jq -r '[.[] | select(.socket_present | not) | .name] | join(", ")') have no messaging socket under $(printf '%s' "$p" | jq -r '.socket_dir') — SendMessage cannot reach them"
+      _d_bad "$(printf '%s' "$peers" | jq -r '[.[] | select(.socket_present | not) | .name] | join(", ")') have no messaging socket in any of: $(printf '%s' "$p" | jq -r '.socket_dirs // .socket_dir') — SendMessage cannot reach them"
     else
       _d_ok "every peer has a messaging socket"
     fi
@@ -169,7 +169,7 @@ doctor_run() {
   case "$lname" in
     cmux)
       if [ "$(printf '%s' "$lp" | jq -r '.reachable')" = "true" ]; then
-        _d_ok "cmux — sessions are persistent, named, and watchable ($(printf '%s' "$lp" | jq -r '.version'))"
+        _d_ok "cmux — sessions are persistent, named, and watchable$(printf '%s' "$lp" | jq -r 'if (.version // "") != "" then " (" + .version + ")" else "" end')"
       else
         _d_bad "cmux is on PATH but its socket is not answering; \`orch spawn\` will fail. Start cmux, or set ORCH_LAUNCHER=bg"
       fi
