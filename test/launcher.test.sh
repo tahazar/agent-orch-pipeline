@@ -271,12 +271,13 @@ err() { echo "ERROR: $1"; exit 0; }
 case "$*" in *--id-format*|*" --all"*) err "Unknown option" ;; esac
 case "${1:-}" in
   ping) echo PONG ;;
-  new-workspace) shift; n=$(($(wc -l < "$d/ws") + 1)); printf 'workspace:%s\t%s\n' "$n" "$*" >> "$d/ws"; printf 'workspace:%s\tsurface:%s1\n' "$n" "$n" >> "$d/surf" ;;
-  list-workspaces) awk -F'\t' '{print $1 "  " $2}' "$d/ws" ;;
-  list-surfaces) if [ "${2:-}" = --workspace ]; then awk -F'\t' -v w="$3" '$1 == w {print $2}' "$d/surf"; else cut -f2 "$d/surf"; fi ;;
-  new-split) w="$4"; n=$(($(grep -c "^$w	" "$d/surf") + 1)); printf '%s\tsurface:%s%s\n' "$w" "${w#workspace:}" "$n" >> "$d/surf"; echo "surface:${w#workspace:}$n" ;;
+  new-workspace) shift; n=$(($(wc -l < "$d/ws") + 1)); u="$(printf 'AAAAAAA%1d-0000-4000-8000-000000000000' "$n")"; printf '%s\t%s\n' "$u" "$*" >> "$d/ws"; printf '%s\tBBBBBBB%1d-0000-4000-8000-000000000001\n' "$u" "$n" >> "$d/surf" ;;
+  list-workspaces) awk -F'\t' 'NR==1 {m="* "} NR>1 {m="  "} {print m NR-1 ": " $1 (NR==1 ? " ◆ " : " ") $2}' "$d/ws" ;;
+  list-surfaces) if [ "${2:-}" = --workspace ]; then awk -F'\t' -v w="$3" '$1 == w {print "  " (c++) ": " $2}' "$d/surf"; else awk -F'\t' '{print "  " (c++) ": " $2}' "$d/surf"; fi ;;
+  new-split) w="$4"; n=$(($(grep -c "^$w	" "$d/surf") + 1)); u="$(printf 'CCCCCCC%1d-0000-4000-8000-%012d' "$n" "$n")"; printf '%s\t%s\n' "$w" "$u" >> "$d/surf"; echo "$u" ;;
   close-workspace) grep -v "^$3	" "$d/ws" > "$d/ws.t"; mv "$d/ws.t" "$d/ws"; grep -v "^$3	" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
   close-surface) grep -v "	$3\$" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
+  list-workspaces-raw) cat "$d/ws" ;;
   send|send-key|notify) : ;;
   *) err "Unknown command '$1'. Use 'help' for available commands." ;;
 esac
@@ -287,26 +288,33 @@ run_strict() { PATH="$WORK/strict:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROO
 out="$(run_strict 'launcher_spawn director director "$ORCH_REPO" ORCH_ROLE=director' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "the director spawns through the strict shim"
 [ "$(cut -f2 "$WORK/strict/ws")" = "orch:run" ]; chk $? "one workspace, titled exactly orch:run — the mis-titled one from the flag form was closed again"
-contains "$(cat "$WORK/strict/log")" "close-workspace --workspace workspace:1" "the stray workspace was closed"
-contains "$(grep '^send --surface' "$WORK/strict/log")" "send --surface surface:11 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "the command was typed into the shim's short-ref surface"
+contains "$(cat "$WORK/strict/log")" "close-workspace --workspace AAAAAAA1-0000-4000-8000-000000000000" "the stray workspace was closed"
+contains "$(grep '^send --surface' "$WORK/strict/log")" "send --surface BBBBBBB1-0000-4000-8000-000000000001 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "the command was typed into the surface the shim listed as '0: <uuid>'"
 out="$(run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a crew member spawns into its own feature workspace"
 contains "$(cut -f2 "$WORK/strict/ws" | tr '\n' ' ')" "orch:F001-x" "titled orch:F001-x"
 out="$(run_strict 'launcher_spawn test-engineer test-engineer "$ORCH_REPO" ORCH_ROLE=test-engineer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a second crew member splits into it"
-contains "$(cat "$WORK/strict/log")" "new-split right --workspace workspace:2" "through new-split, without the flags the shim rejects"
-contains "$(grep '^send --surface' "$WORK/strict/log" | tail -1)" "send --surface surface:22 " "and its command goes to the new surface"
+contains "$(cat "$WORK/strict/log")" "new-split right --workspace AAAAAAA2-0000-4000-8000-000000000000" "through new-split, without the flags the shim rejects"
+contains "$(grep '^send --surface' "$WORK/strict/log" | tail -1)" "send --surface CCCCCCC2-0000-4000-8000-000000000002 " "and its command goes to the new surface"
 out="$(run_strict 'launcher_list' 2>&1)"
 [ "$(printf '%s' "$out" | sort | tr '\n' ' ')" = "developer director test-engineer " ]; chk $? "all three are listed alive (got: $(printf '%s' "$out" | tr '\n' ' '))"
 out="$(run_strict 'launcher_kill test-engineer' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "kill closes a crew member's surface"
-contains "$(cat "$WORK/strict/log")" "close-surface --surface surface:22 --workspace workspace:2" "by close-surface, leaving the workspace"
+contains "$(cat "$WORK/strict/log")" "close-surface --surface CCCCCCC2-0000-4000-8000-000000000002 --workspace AAAAAAA2-0000-4000-8000-000000000000" "by close-surface, leaving the workspace"
 out="$(run_strict 'launcher_kill developer' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "killing the last member closes the workspace"
-contains "$(cat "$WORK/strict/log")" "close-workspace --workspace workspace:2" "by close-workspace"
+contains "$(cat "$WORK/strict/log")" "close-workspace --workspace AAAAAAA2-0000-4000-8000-000000000000" "by close-workspace"
 out="$(run_strict 'launcher_list' 2>&1)"
 [ "$out" = "director" ]; chk $? "only the director remains (got: $out)"
-not_contains "$(run_strict 'launcher_probe')" "ERROR" "the probe carries no shim error text"
+out="$(run_strict 'launcher_probe')"
+not_contains "$out" "ERROR" "the probe carries no shim error text"
+[ "$(printf '%s' "$out" | jq -r .listing)" = "true" ]; chk $? "the probe reports that the listing answers"
+[ "$(printf '%s' "$out" | jq -r .titles)" = "1" ]; chk $? "and how many workspaces it parsed"
+printf '#!/bin/bash\ncase "${1:-}" in ping) echo PONG ;; *) echo "ERROR: Unknown command"; exit 0 ;; esac\n' > "$WORK/strict/cmux2"; chmod +x "$WORK/strict/cmux2"
+mkdir -p "$WORK/pingonly" && cp "$WORK/strict/cmux2" "$WORK/pingonly/cmux"
+out="$(PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep -A1 '^launcher' | tail -1; PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep 'cmux')"
+contains "$out" "answers ping, but no workspace listing form answers" "doctor: ping alone is not green"
 rm -f "$ORCH_REPO/.orch/cmux-panes"
 
 finish launcher
