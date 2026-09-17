@@ -127,6 +127,49 @@ _cmux_alive() {  # _cmux_alive <surface-id>
   [ -n "$1" ] && _cmux_tree --all | grep -qF "$1"
 }
 
+# Native CLI or the remote shim? The native CLI answers `workspace list`;
+# the shim does not. Decided once per process.
+_cmux_native() {
+  if [ -z "${_CMUX_NATIVE:-}" ]; then
+    if _cmux_try workspace list --id-format both >/dev/null; then _CMUX_NATIVE=1; else _CMUX_NATIVE=0; fi
+  fi
+  [ "$_CMUX_NATIVE" = 1 ]
+}
+
+# Typing into a pane. On the native CLI, `send --surface` and `send-key
+# --surface` are verified. On the shim they are a trap: `send --surface
+# <id> text` returns OK and types the whole argument list into whichever
+# pane is FOCUSED — found live, with the director's command line sitting in
+# the human's shell. The shim's targeted forms are send-surface and
+# send-key-surface, and they want an id of their own (an index, not the
+# UUID the listing shows), so the id is proved first with a harmless key:
+# a form that answers "Surface not found" for the wrong id is one that can
+# be trusted with the right one. No proof, no typing — the spawn refuses.
+_cmux_shim_target() {  # _cmux_shim_target <ws-id> <surface-id> -> the id the shim accepts, or rc 1
+  local line idx cand
+  line="$(_cmux_tree --workspace "$1" | grep -F "$2" | head -1)"
+  idx="$(printf '%s' "$line" | sed -n 's/^[[:space:]]*\*\{0,1\}[[:space:]]*\([0-9]\{1,\}\):.*/\1/p')"
+  for cand in "$2" "$idx" "${idx:+surface:$idx}"; do
+    [ -n "$cand" ] || continue
+    _cmux_try send-key-surface "$cand" enter >/dev/null && { printf '%s' "$cand"; return 0; }
+  done
+  return 1
+}
+
+_cmux_type() {  # _cmux_type <ws-id> <surface-id> <text>
+  local t
+  if _cmux_native; then _cmux_try send --surface "$2" "$3" >/dev/null; return $?; fi
+  t="$(_cmux_shim_target "$1" "$2")" || return 1
+  _cmux_try send-surface "$t" "$3" >/dev/null
+}
+
+_cmux_key() {  # _cmux_key <ws-id> <surface-id> <key>
+  local t
+  if _cmux_native; then _cmux_try send-key --surface "$2" "$3" >/dev/null; return $?; fi
+  t="$(_cmux_shim_target "$1" "$2")" || return 1
+  _cmux_try send-key-surface "$t" "$3" >/dev/null
+}
+
 # Map bookkeeping: name -> surface uuid -> workspace uuid -> workspace title.
 # Pruned lazily: a dead pane is dropped the first time anything looks it up.
 _cmux_map_get() {  # _cmux_map_get <name> -> "surface_uuid ws_uuid ws_title"
@@ -213,9 +256,13 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   for kv in "$@"; do
     case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
   done
-  _cmux_try send --surface "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" >/dev/null \
+  if ! _cmux_native && ! _cmux_shim_target "$wsuuid" "$suuid" >/dev/null; then
+    warn "cmux cannot target $name's pane: this cmux is the remote shim and none of its send-surface id forms accepted the surface. Nothing was typed anywhere. Use ORCH_LAUNCHER=bg, or send \`cmux list-surfaces --workspace $wsuuid\` and a working \`cmux send-key-surface <id> enter\` upstream."
+    return 1
+  fi
+  _cmux_type "$wsuuid" "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" \
     || { warn "could not start $name in its pane"; return 1; }
-  _cmux_try send-key --surface "$suuid" enter >/dev/null \
+  _cmux_key "$wsuuid" "$suuid" enter \
     || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
 
   _cmux_map_put "$name" "$suuid" "$wsuuid" "$wst"
@@ -271,7 +318,8 @@ orch_lnch_probe() {
   if [ "$ok" = true ] && _cmux_ws_list >/dev/null 2>&1; then
     listing=true; titles="$(_cmux_ws_list | _cmux_title_of | grep -c .)"
   fi
-  jq -n -c --arg launcher cmux --argjson reachable "$ok" --argjson listing "$listing" --argjson titles "${titles:-0}" --arg version "$ver" \
+  jq -n -c --arg launcher cmux --argjson reachable "$ok" --argjson listing "$listing" --argjson titles "${titles:-0}" \
+    --argjson native "$([ "$ok" = true ] && _cmux_native && echo true || echo false)" --arg version "$ver" \
     --argjson sessions "$(orch_lnch_list | jq -R -s -c 'split("\n") | map(select(length>0))')" \
     '$ARGS.named'
 }
