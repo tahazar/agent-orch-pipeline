@@ -257,30 +257,36 @@ contains "$out" "the director did not launch" "and says the director did not lau
 not_contains "$out" "The run is up" "never claiming the run is up"
 
 
-printf '\ncmux: the strict shim — errors on stdout, its own command names, no uuids:\n'
-# What the remote Linux shim actually does: `workspace` and `tree` are
-# unknown commands reported as "ERROR: ..." on stdout with exit 0; the
-# listings are list-workspaces and list-surfaces; unknown flags are errors;
-# ids are short refs; and new-workspace given the flag form makes a
-# workspace titled with the whole argv.
-mkdir -p "$WORK/strict" && : > "$WORK/strict/log" && : > "$WORK/strict/ws" && : > "$WORK/strict/surf"
+printf '\ncmux: the strict shim — focused-relative, errors on stdout, its own command names:\n'
+# What the remote Linux shim actually does, as found live: `workspace` and
+# `tree` are unknown commands reported as "ERROR: ..." on stdout with exit
+# 0; the listings are list-workspaces ("* 1: <uuid> ◆ title") and
+# list-surfaces; unknown flags are errors; new-workspace given the flag
+# form makes a workspace titled with the whole argv; and EVERY per-surface
+# operation resolves against the focused workspace — `send --surface <id>`
+# returns OK and types into the focused pane, `send-key-surface 0 enter` is
+# accepted for the focused pane whatever workspace was meant. The fake
+# keeps a per-workspace screen buffer so the test can see where text went.
+mkdir -p "$WORK/strict" && : > "$WORK/strict/log" && : > "$WORK/strict/ws" && : > "$WORK/strict/surf" && echo human > "$WORK/strict/cur"
 cat > "$WORK/strict/cmux" <<'SH'
 #!/bin/bash
 d="$(dirname "$0")"; printf '%s\n' "$*" >> "$d/log"
 err() { echo "ERROR: $1"; exit 0; }
+cur="$(cat "$d/cur")"
 case "$*" in *--id-format*|*" --all"*) err "Unknown option" ;; esac
 case "${1:-}" in
   ping) echo PONG ;;
   new-workspace) shift; n=$(($(wc -l < "$d/ws") + 1)); u="$(printf 'AAAAAAA%1d-0000-4000-8000-000000000000' "$n")"; printf '%s\t%s\n' "$u" "$*" >> "$d/ws"; printf '%s\tBBBBBBB%1d-0000-4000-8000-000000000001\n' "$u" "$n" >> "$d/surf" ;;
-  list-workspaces) awk -F'\t' 'NR==1 {m="* "} NR>1 {m="  "} {print m NR-1 ": " $1 (NR==1 ? " ◆ " : " ") $2}' "$d/ws" ;;
+  list-workspaces) awk -F'\t' -v cur="$cur" '{m = ($1 == cur) ? "* " : "  "; print m NR-1 ": " $1 (($1 == cur) ? " ◆ " : " ") $2}' "$d/ws" ;;
   list-surfaces) if [ "${2:-}" = --workspace ]; then awk -F'\t' -v w="$3" '$1 == w {print "  " (c++) ": " $2}' "$d/surf"; else awk -F'\t' '{print "  " (c++) ": " $2}' "$d/surf"; fi ;;
+  select-workspace) grep -q "^$2	" "$d/ws" || err "Workspace not found"; [ -z "${NO_FOCUS:-}" ] && printf '%s\n' "$2" > "$d/cur" ;;
   new-split) w="$4"; n=$(($(grep -c "^$w	" "$d/surf") + 1)); u="$(printf 'CCCCCCC%1d-0000-4000-8000-%012d' "$n" "$n")"; printf '%s\t%s\n' "$w" "$u" >> "$d/surf"; echo "$u" ;;
   close-workspace) grep -v "^$3	" "$d/ws" > "$d/ws.t"; mv "$d/ws.t" "$d/ws"; grep -v "^$3	" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
   close-surface) grep -v "	$3\$" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
-  list-workspaces-raw) cat "$d/ws" ;;
-  send) : ;;                                   # the trap: OK, and typed into the focused pane
-  send-key) err "Unknown key '$*'" ;;
-  send-surface|send-key-surface) case "${2:-}" in [0-9]|[0-9][0-9]) : ;; *) err "Surface not found" ;; esac ;;
+  send) shift; printf '%s' "$*" >> "$d/screen.$cur" ;;                       # --surface is not parsed: the whole argv, into the focused pane
+  send-key) case "${2:-}" in enter) printf '\n' >> "$d/screen.$cur" ;; *) err "Unknown key '$*'" ;; esac ;;
+  send-surface|send-key-surface) case "${2:-}" in [0-9]) shift 2; printf '%s\n' "$*" >> "$d/screen.$cur" ;; *) err "Surface not found" ;; esac ;;   # accepted, and focused-relative
+  read-screen) cat "$d/screen.${READ_AS:-$cur}" 2>/dev/null ;;
   notify) : ;;
   *) err "Unknown command '$1'. Use 'help' for available commands." ;;
 esac
@@ -292,17 +298,24 @@ out="$(run_strict 'launcher_spawn director director "$ORCH_REPO" ORCH_ROLE=direc
 chk_rc 0 "$rc" "the director spawns through the strict shim"
 [ "$(cut -f2 "$WORK/strict/ws")" = "orch:run" ]; chk $? "one workspace, titled exactly orch:run — the mis-titled one from the flag form was closed again"
 contains "$(cat "$WORK/strict/log")" "close-workspace --workspace AAAAAAA1-0000-4000-8000-000000000000" "the stray workspace was closed"
-not_contains "$(cat "$WORK/strict/log")" "send --surface" "send --surface is never used on the shim — it types into the focused pane"
-contains "$(cat "$WORK/strict/log")" "send-key-surface BBBBBBB1-0000-4000-8000-000000000001 enter" "the uuid was tried as a target first"
-contains "$(grep '^send-surface' "$WORK/strict/log")" "send-surface 0 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "and the command went through send-surface with the index the shim accepted"
-contains "$(cat "$WORK/strict/log")" "send-key-surface 0 enter" "and Enter through send-key-surface"
+not_contains "$(cat "$WORK/strict/log")" "send --surface" "send --surface is never used on the shim"
+not_contains "$(cat "$WORK/strict/log")" "send-surface" "nor send-surface"
+not_contains "$(cat "$WORK/strict/log")" "send-key-surface" "nor send-key-surface — acceptance is not identity"
+contains "$(cat "$WORK/strict/log")" "select-workspace AAAAAAA1-0000-4000-8000-000000000000" "the target workspace is focused first"
+[ ! -e "$WORK/strict/screen.human" ]; chk $? "nothing was typed into the human's pane"
+scr="$(cat "$WORK/strict/screen.AAAAAAA1-0000-4000-8000-000000000000")"
+contains "$scr" "cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "the command is in the director's pane"
+contains "$scr" "#orch" "with its marker"
+[ "$(tail -c1 "$WORK/strict/screen.AAAAAAA1-0000-4000-8000-000000000000" | od -An -c | tr -d ' ')" = '\n' ]; chk $? "and Enter was pressed there"
+seq="$(grep -nE '^(send |read-screen|send-key enter)' "$WORK/strict/log" | awk -F: '{print $2}' | awk '{print $1}' | tr '\n' ' ')"
+[ "$seq" = "send read-screen send-key " ]; chk $? "typed, read back, then Enter — in that order (got: $seq)"
 out="$(run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a crew member spawns into its own feature workspace"
 contains "$(cut -f2 "$WORK/strict/ws" | tr '\n' ' ')" "orch:F001-x" "titled orch:F001-x"
 out="$(run_strict 'launcher_spawn test-engineer test-engineer "$ORCH_REPO" ORCH_ROLE=test-engineer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a second crew member splits into it"
 contains "$(cat "$WORK/strict/log")" "new-split right --workspace AAAAAAA2-0000-4000-8000-000000000000" "through new-split, without the flags the shim rejects"
-contains "$(grep '^send-surface' "$WORK/strict/log" | tail -1)" "send-surface 1 cd " "and its command goes to the new surface, by its index"
+contains "$(cat "$WORK/strict/screen.AAAAAAA2-0000-4000-8000-000000000000")" "claude --agent test-engineer" "and its command landed in the feature workspace"
 out="$(run_strict 'launcher_list' 2>&1)"
 [ "$(printf '%s' "$out" | sort | tr '\n' ' ')" = "developer director test-engineer " ]; chk $? "all three are listed alive (got: $(printf '%s' "$out" | tr '\n' ' '))"
 out="$(run_strict 'launcher_kill test-engineer' 2>&1)"; rc=$?
@@ -316,22 +329,27 @@ out="$(run_strict 'launcher_list' 2>&1)"
 out="$(run_strict 'launcher_probe')"
 not_contains "$out" "ERROR" "the probe carries no shim error text"
 [ "$(printf '%s' "$out" | jq -r .listing)" = "true" ]; chk $? "the probe reports that the listing answers"
-[ "$(printf '%s' "$out" | jq -r .titles)" = "1" ]; chk $? "and how many workspaces it parsed"
 [ "$(printf '%s' "$out" | jq -r .native)" = "false" ]; chk $? "and that this cmux is the shim"
-# A shim that targets nothing: no form accepts any id. Nothing may be typed.
-mkdir -p "$WORK/notarget" && : > "$WORK/notarget/log"
-sed -e 's/case "${2:-}" in \[0-9\]|\[0-9\]\[0-9\]) : ;; \*) err "Surface not found" ;; esac/err "Surface not found"/' "$WORK/strict/cmux" > "$WORK/notarget/cmux"
-sed -i 's|d="$(dirname "$0")"; printf|d="$(dirname "$0")"; ws="$d/ws"; surf="$d/surf"; printf|' "$WORK/notarget/cmux"
-chmod +x "$WORK/notarget/cmux"; cp "$WORK/strict/ws" "$WORK/notarget/ws" 2>/dev/null; cp "$WORK/strict/surf" "$WORK/notarget/surf" 2>/dev/null
-rm -f "$ORCH_REPO/.orch/cmux-panes"
-out="$(PATH="$WORK/notarget:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" ORCH_REPO="$ORCH_REPO" ORCH_PROMPT="begin" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F002-y' 2>&1)"; rc=$?
-chk_rc 1 "$rc" "a shim that accepts no target id: the spawn refuses"
-contains "$out" "Nothing was typed anywhere" "and says nothing was typed"
-not_contains "$(grep -E '^send(-surface)? ' "$WORK/notarget/log")" "claude" "and indeed no command was sent by any form"
-printf '#!/bin/bash\ncase "${1:-}" in ping) echo PONG ;; *) echo "ERROR: Unknown command"; exit 0 ;; esac\n' > "$WORK/strict/cmux2"; chmod +x "$WORK/strict/cmux2"
-mkdir -p "$WORK/pingonly" && cp "$WORK/strict/cmux2" "$WORK/pingonly/cmux"
-out="$(PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep -A1 '^launcher' | tail -1; PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep 'cmux')"
+out="$(run_strict 'launcher_peek director' 2>&1)"; rc=$?
+chk_rc 1 "$rc" "peek refuses on the shim rather than showing the focused pane as the agent's"
+mkdir -p "$WORK/pingonly"; printf '#!/bin/bash\ncase "${1:-}" in ping) echo PONG ;; *) echo "ERROR: Unknown command"; exit 0 ;; esac\n' > "$WORK/pingonly/cmux"; chmod +x "$WORK/pingonly/cmux"
+out="$(PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep 'cmux')"
 contains "$out" "answers ping, but no workspace listing form answers" "doctor: ping alone is not green"
+
+printf '\ncmux: the two ways the identity proof fails, and neither types anything that runs:\n'
+# (a) the workspace cannot be made current: nothing is typed at all.
+rm -f "$ORCH_REPO/.orch/cmux-panes" "$WORK/strict/screen."*; echo human > "$WORK/strict/cur"
+out="$(NO_FOCUS=1 run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F002-y' 2>&1)"; rc=$?
+chk_rc 1 "$rc" "focus does not move: the spawn refuses"
+contains "$out" "Nothing was typed" "and says nothing was typed"
+[ ! -e "$WORK/strict/screen.human" ] && [ -z "$(ls "$WORK/strict"/screen.* 2>/dev/null)" ]; chk $? "and indeed no pane received anything"
+# (b) focus moves but the text lands elsewhere: typed, read back, not found — no Enter.
+rm -f "$ORCH_REPO/.orch/cmux-panes" "$WORK/strict/screen."*; echo human > "$WORK/strict/cur"; : > "$WORK/strict/log"
+out="$(READ_AS=human run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F003-z' 2>&1)"; rc=$?
+chk_rc 1 "$rc" "the read-back does not show the marker: the spawn refuses"
+contains "$out" "Enter was NOT pressed" "and says Enter was not pressed"
+contains "$out" "press Ctrl-C" "and tells the human how to clear the line"
+not_contains "$(cat "$WORK/strict/log")" "send-key enter" "no Enter was sent in that attempt"
 rm -f "$ORCH_REPO/.orch/cmux-panes"
 
 finish launcher

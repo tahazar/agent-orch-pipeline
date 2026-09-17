@@ -136,38 +136,53 @@ _cmux_native() {
   [ "$_CMUX_NATIVE" = 1 ]
 }
 
-# Typing into a pane. On the native CLI, `send --surface` and `send-key
-# --surface` are verified. On the shim they are a trap: `send --surface
-# <id> text` returns OK and types the whole argument list into whichever
-# pane is FOCUSED — found live, with the director's command line sitting in
-# the human's shell. The shim's targeted forms are send-surface and
-# send-key-surface, and they want an id of their own (an index, not the
-# UUID the listing shows), so the id is proved first with a harmless key:
-# a form that answers "Surface not found" for the wrong id is one that can
-# be trusted with the right one. No proof, no typing — the spawn refuses.
-_cmux_shim_target() {  # _cmux_shim_target <ws-id> <surface-id> -> the id the shim accepts, or rc 1
-  local line idx cand
-  line="$(_cmux_tree --workspace "$1" | grep -F "$2" | head -1)"
-  idx="$(printf '%s' "$line" | sed -n 's/^[[:space:]]*\*\{0,1\}[[:space:]]*\([0-9]\{1,\}\):.*/\1/p')"
-  for cand in "$2" "$idx" "${idx:+surface:$idx}"; do
-    [ -n "$cand" ] || continue
-    _cmux_try send-key-surface "$cand" enter >/dev/null && { printf '%s' "$cand"; return 0; }
-  done
-  return 1
+# Typing into a pane.
+#
+# On the native CLI, `send --surface` and `send-key --surface` are verified.
+# On the shim every per-surface operation resolves against the FOCUSED
+# workspace: `send --surface <id>` returns OK and types into the focused
+# pane, and `send-key-surface 0 enter` is accepted for the focused pane
+# whatever workspace was meant — found live, twice. So on the shim
+# acceptance proves nothing, and a proof has to be of identity:
+#
+#   1. focus the target workspace, and confirm the listing now marks it
+#      current (the shim's "*") — no mark, no typing;
+#   2. type the command with a unique marker comment on its end;
+#   3. read the focused pane back and find the marker there — not found,
+#      no Enter, and the human is told which command line to clear;
+#   4. only then press Enter.
+#
+# The worst case left is a command typed and not run, which is a mess to
+# clear and never an execution. The case #16 had — typed into the human's
+# shell and executed — cannot happen: Enter follows a read-back or nothing.
+_cmux_shim_focus() {  # _cmux_shim_focus <ws-id> -> 0 once the listing marks it current
+  _cmux_first "select-workspace $1" "workspace select $1" "focus-workspace $1" "switch-workspace $1" >/dev/null || return 1
+  _cmux_ws_list | grep -F "$1" | grep -q '^[[:space:]]*\*'
 }
 
-_cmux_type() {  # _cmux_type <ws-id> <surface-id> <text>
-  local t
-  if _cmux_native; then _cmux_try send --surface "$2" "$3" >/dev/null; return $?; fi
-  t="$(_cmux_shim_target "$1" "$2")" || return 1
-  _cmux_try send-surface "$t" "$3" >/dev/null
+_cmux_shim_screen() {  # the focused pane's screen, whitespace removed (wrapping cannot hide a marker)
+  _cmux_first "read-screen --scrollback --lines 40" "read-screen --lines 40" "read-screen 0" "read-screen" | tr -d ' \t\r\n'
 }
 
-_cmux_key() {  # _cmux_key <ws-id> <surface-id> <key>
-  local t
-  if _cmux_native; then _cmux_try send-key --surface "$2" "$3" >/dev/null; return $?; fi
-  t="$(_cmux_shim_target "$1" "$2")" || return 1
-  _cmux_try send-key-surface "$t" "$3" >/dev/null
+# _cmux_type_verified <ws-id> <surface-id> <name> <text> -> types and presses Enter, or refuses
+_cmux_type_verified() {
+  local ws="$1" suuid="$2" name="$3" text="$4" marker
+  if _cmux_native; then
+    _cmux_try send --surface "$suuid" "$text" >/dev/null || { warn "could not start $name in its pane"; return 1; }
+    _cmux_try send-key --surface "$suuid" enter >/dev/null || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
+    return 0
+  fi
+  _cmux_shim_focus "$ws" || {
+    warn "cmux (remote shim) could not make workspace $ws current, so a pane in it cannot be typed into safely. Nothing was typed. Use ORCH_LAUNCHER=bg."
+    return 1
+  }
+  marker="#orch$(printf '%s%s' "$$" "$(now_epoch)" | tail -c 8)"
+  _cmux_try send "$text $marker" >/dev/null || { warn "could not type $name's command into the focused pane"; return 1; }
+  if ! _cmux_shim_screen | grep -qF "$marker"; then
+    warn "typed $name's command, but the pane the shim shows as focused does not contain it — Enter was NOT pressed. The text is sitting unexecuted on some pane's command line: find it and press Ctrl-C. Then use ORCH_LAUNCHER=bg."
+    return 1
+  fi
+  _cmux_try send-key enter >/dev/null || { warn "typed $name's command into its pane but could not press enter — press it there"; return 1; }
 }
 
 # Map bookkeeping: name -> surface uuid -> workspace uuid -> workspace title.
@@ -256,14 +271,7 @@ orch_lnch_spawn() {  # <role> <name> <cwd> [KEY=VALUE...]
   for kv in "$@"; do
     case "$kv" in *=*) envprefix="$envprefix${kv%%=*}=$(launcher_shq "${kv#*=}") " ;; esac
   done
-  if ! _cmux_native && ! _cmux_shim_target "$wsuuid" "$suuid" >/dev/null; then
-    warn "cmux cannot target $name's pane: this cmux is the remote shim and none of its send-surface id forms accepted the surface. Nothing was typed anywhere. Use ORCH_LAUNCHER=bg, or send \`cmux list-surfaces --workspace $wsuuid\` and a working \`cmux send-key-surface <id> enter\` upstream."
-    return 1
-  fi
-  _cmux_type "$wsuuid" "$suuid" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" \
-    || { warn "could not start $name in its pane"; return 1; }
-  _cmux_key "$wsuuid" "$suuid" enter \
-    || { warn "typed $name's command but could not press enter — press it in the pane"; return 1; }
+  _cmux_type_verified "$wsuuid" "$suuid" "$name" "cd $(launcher_shq "$cwd") && ${envprefix}${cmd}" || return 1
 
   _cmux_map_put "$name" "$suuid" "$wsuuid" "$wst"
   printf 'spawned %s as a pane in cmux workspace `%s`\n' "$name" "$wst" >&2
@@ -290,6 +298,12 @@ orch_lnch_kill() {  # <name>
 orch_lnch_peek() {  # <name> [lines]
   local hit
   hit="$(_cmux_map_get "$1")" || { warn "no live pane for $1"; return 1; }
+  if ! _cmux_native; then
+    # The shim reads the focused pane whatever surface is named; a screen
+    # from the wrong pane reads like a quiet agent. Say so instead.
+    warn "peek: this cmux is the remote shim, whose read-screen is focused-relative — look at the pane"
+    return 1
+  fi
   _cmux_first "read-screen --surface $(printf '%s' "$hit" | cut -d' ' -f1) --scrollback --lines ${2:-60}" \
                "read-screen --surface $(printf '%s' "$hit" | cut -d' ' -f1)"
 }
