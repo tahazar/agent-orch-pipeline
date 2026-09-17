@@ -278,7 +278,10 @@ case "${1:-}" in
   close-workspace) grep -v "^$3	" "$d/ws" > "$d/ws.t"; mv "$d/ws.t" "$d/ws"; grep -v "^$3	" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
   close-surface) grep -v "	$3\$" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
   list-workspaces-raw) cat "$d/ws" ;;
-  send|send-key|notify) : ;;
+  send) : ;;                                   # the trap: OK, and typed into the focused pane
+  send-key) err "Unknown key '$*'" ;;
+  send-surface|send-key-surface) case "${2:-}" in [0-9]|[0-9][0-9]) : ;; *) err "Surface not found" ;; esac ;;
+  notify) : ;;
   *) err "Unknown command '$1'. Use 'help' for available commands." ;;
 esac
 SH
@@ -289,14 +292,17 @@ out="$(run_strict 'launcher_spawn director director "$ORCH_REPO" ORCH_ROLE=direc
 chk_rc 0 "$rc" "the director spawns through the strict shim"
 [ "$(cut -f2 "$WORK/strict/ws")" = "orch:run" ]; chk $? "one workspace, titled exactly orch:run — the mis-titled one from the flag form was closed again"
 contains "$(cat "$WORK/strict/log")" "close-workspace --workspace AAAAAAA1-0000-4000-8000-000000000000" "the stray workspace was closed"
-contains "$(grep '^send --surface' "$WORK/strict/log")" "send --surface BBBBBBB1-0000-4000-8000-000000000001 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "the command was typed into the surface the shim listed as '0: <uuid>'"
+not_contains "$(cat "$WORK/strict/log")" "send --surface" "send --surface is never used on the shim — it types into the focused pane"
+contains "$(cat "$WORK/strict/log")" "send-key-surface BBBBBBB1-0000-4000-8000-000000000001 enter" "the uuid was tried as a target first"
+contains "$(grep '^send-surface' "$WORK/strict/log")" "send-surface 0 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "and the command went through send-surface with the index the shim accepted"
+contains "$(cat "$WORK/strict/log")" "send-key-surface 0 enter" "and Enter through send-key-surface"
 out="$(run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a crew member spawns into its own feature workspace"
 contains "$(cut -f2 "$WORK/strict/ws" | tr '\n' ' ')" "orch:F001-x" "titled orch:F001-x"
 out="$(run_strict 'launcher_spawn test-engineer test-engineer "$ORCH_REPO" ORCH_ROLE=test-engineer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
 chk_rc 0 "$rc" "a second crew member splits into it"
 contains "$(cat "$WORK/strict/log")" "new-split right --workspace AAAAAAA2-0000-4000-8000-000000000000" "through new-split, without the flags the shim rejects"
-contains "$(grep '^send --surface' "$WORK/strict/log" | tail -1)" "send --surface CCCCCCC2-0000-4000-8000-000000000002 " "and its command goes to the new surface"
+contains "$(grep '^send-surface' "$WORK/strict/log" | tail -1)" "send-surface 1 cd " "and its command goes to the new surface, by its index"
 out="$(run_strict 'launcher_list' 2>&1)"
 [ "$(printf '%s' "$out" | sort | tr '\n' ' ')" = "developer director test-engineer " ]; chk $? "all three are listed alive (got: $(printf '%s' "$out" | tr '\n' ' '))"
 out="$(run_strict 'launcher_kill test-engineer' 2>&1)"; rc=$?
@@ -311,6 +317,17 @@ out="$(run_strict 'launcher_probe')"
 not_contains "$out" "ERROR" "the probe carries no shim error text"
 [ "$(printf '%s' "$out" | jq -r .listing)" = "true" ]; chk $? "the probe reports that the listing answers"
 [ "$(printf '%s' "$out" | jq -r .titles)" = "1" ]; chk $? "and how many workspaces it parsed"
+[ "$(printf '%s' "$out" | jq -r .native)" = "false" ]; chk $? "and that this cmux is the shim"
+# A shim that targets nothing: no form accepts any id. Nothing may be typed.
+mkdir -p "$WORK/notarget" && : > "$WORK/notarget/log"
+sed -e 's/case "${2:-}" in \[0-9\]|\[0-9\]\[0-9\]) : ;; \*) err "Surface not found" ;; esac/err "Surface not found"/' "$WORK/strict/cmux" > "$WORK/notarget/cmux"
+sed -i 's|d="$(dirname "$0")"; printf|d="$(dirname "$0")"; ws="$d/ws"; surf="$d/surf"; printf|' "$WORK/notarget/cmux"
+chmod +x "$WORK/notarget/cmux"; cp "$WORK/strict/ws" "$WORK/notarget/ws" 2>/dev/null; cp "$WORK/strict/surf" "$WORK/notarget/surf" 2>/dev/null
+rm -f "$ORCH_REPO/.orch/cmux-panes"
+out="$(PATH="$WORK/notarget:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" ORCH_REPO="$ORCH_REPO" ORCH_PROMPT="begin" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F002-y' 2>&1)"; rc=$?
+chk_rc 1 "$rc" "a shim that accepts no target id: the spawn refuses"
+contains "$out" "Nothing was typed anywhere" "and says nothing was typed"
+not_contains "$(grep -E '^send(-surface)? ' "$WORK/notarget/log")" "claude" "and indeed no command was sent by any form"
 printf '#!/bin/bash\ncase "${1:-}" in ping) echo PONG ;; *) echo "ERROR: Unknown command"; exit 0 ;; esac\n' > "$WORK/strict/cmux2"; chmod +x "$WORK/strict/cmux2"
 mkdir -p "$WORK/pingonly" && cp "$WORK/strict/cmux2" "$WORK/pingonly/cmux"
 out="$(PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep -A1 '^launcher' | tail -1; PATH="$WORK/pingonly:$PATH" ORCH_LAUNCHER=cmux ORCH_NO_COLOR=1 "$ORCH" doctor 2>&1 | grep 'cmux')"
