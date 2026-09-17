@@ -489,10 +489,15 @@ be compared against what you actually said.
           # idle between gates, accruing exactly the context an adversarial
           # reviewer is not supposed to have. `orch audit` spawns it fresh at
           # each gate; the ledger, not its memory, is the continuity.
+          # Success is the spawn's, not this line's: a director that did not
+          # launch is a run that is not up, and saying otherwise cost a night.
           ORCH_LEDGER_FEATURE=_orch \
             ORCH_PROMPT="$(launcher_orders director)" \
             launcher_spawn director "$(launcher_session_name director)" "$ORCH_REPO" \
-              $(launcher_env director) || true
+              $(launcher_env director) \
+            || die "team start: the director did not launch (the launcher said why above). Nothing is running.
+  orch doctor            # the launcher section
+  ORCH_LAUNCHER=bg orch team start    # to bypass cmux for now"
           printf '\nThe run is up. The auditor is not a standing session — it is\n'
           printf 'spawned fresh at each gate by `orch audit`. Start a feature next:\n'
           printf '  orch feature start F001-<slug> --request "..."\n'

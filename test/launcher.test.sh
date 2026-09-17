@@ -211,4 +211,49 @@ out="$(PATH="$WORK/fakebin:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" bash
 not_contains "$out" "Unknown command" "and no shim error is reported as a version"
 [ "$(printf '%s' "$out" | jq -r '.version // ""')" = "" ]; chk $? "version is empty rather than wrong"
 
+
+printf '\ncmux: the workspace is created by name alone, and the command is typed:\n'
+# A fake cmux that records every call. It answers what the remote shim
+# answers: new-workspace with a positional name only (the flag form makes a
+# workspace titled with the whole argv, as the real shim did), workspace
+# list, tree, new-split, send, send-key.
+mkdir -p "$WORK/shim" && : > "$WORK/shim/log" && : > "$WORK/shim/ws"
+cat > "$WORK/shim/cmux" <<'SH'
+#!/bin/bash
+log="$(dirname "$0")/log"; ws="$(dirname "$0")/ws"
+printf '%s\n' "$*" >> "$log"
+case "${1:-}" in
+  ping) echo PONG ;;
+  new-workspace) shift; printf '%s\t%s\n' "aaaaaaaa-0000-0000-0000-$(printf '%012d' "$(wc -l < "$ws")")" "$*" >> "$ws" ;;
+  workspace) awk -F'\t' '{print $1 " " $2}' "$ws" ;;
+  tree) echo "  surface surface:1 bbbbbbbb-0000-0000-0000-000000000001" ;;
+  new-split) echo "surface:2 cccccccc-0000-0000-0000-000000000002" ;;
+  send|send-key|notify) : ;;
+  *) echo "ERROR: Unknown command '$1'"; exit 0 ;;
+esac
+SH
+chmod +x "$WORK/shim/cmux"
+out="$(PATH="$WORK/shim:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" ORCH_REPO="$ORCH_REPO" ORCH_PROMPT="begin" \
+  bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; launcher_spawn director director "$ORCH_REPO" ORCH_ROLE=director ORCH_HOME=/x' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "the director spawns through the shim"
+ws_names="$(cut -f2 "$WORK/shim/ws")"
+contains "$ws_names" "orch:run" "the workspace is titled orch:run"
+not_contains "$ws_names" "--command" "and never with the argv as its name"
+not_contains "$(cat "$WORK/shim/log")" "--command" "new-workspace is never given --command"
+not_contains "$(cat "$WORK/shim/log")" "--cwd" "nor --cwd"
+sent="$(grep '^send --surface' "$WORK/shim/log")"
+contains "$sent" "cd '$ORCH_REPO' && ORCH_ROLE='director' ORCH_HOME='/x' claude --agent director" "the command is typed into the pane with its cwd and environment"
+contains "$(cat "$WORK/shim/log")" "send-key --surface bbbbbbbb-0000-0000-0000-000000000001 enter" "and Enter is pressed"
+grep -q "^director	" "$ORCH_REPO/.orch/cmux-panes"; chk $? "the pane is on the map"
+: > "$WORK/shim/ws"; : > "$WORK/shim/log"; rm -f "$ORCH_REPO/.orch/cmux-panes"
+cat > "$WORK/shim/cmux" <<'SH'
+#!/bin/bash
+case "${1:-}" in ping) echo PONG ;; workspace) : ;; *) : ;; esac
+SH
+chmod +x "$WORK/shim/cmux"
+out="$(PATH="$WORK/shim:$PATH" ORCH_LAUNCHER=cmux "$ORCH" team start 2>&1)"; rc=$?
+chk_rc 1 "$rc" "when the workspace never appears, team start fails"
+contains "$out" "the director did not launch" "and says the director did not launch"
+not_contains "$out" "The run is up" "never claiming the run is up"
+
 finish launcher
