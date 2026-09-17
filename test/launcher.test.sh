@@ -256,4 +256,57 @@ chk_rc 1 "$rc" "when the workspace never appears, team start fails"
 contains "$out" "the director did not launch" "and says the director did not launch"
 not_contains "$out" "The run is up" "never claiming the run is up"
 
+
+printf '\ncmux: the strict shim — errors on stdout, its own command names, no uuids:\n'
+# What the remote Linux shim actually does: `workspace` and `tree` are
+# unknown commands reported as "ERROR: ..." on stdout with exit 0; the
+# listings are list-workspaces and list-surfaces; unknown flags are errors;
+# ids are short refs; and new-workspace given the flag form makes a
+# workspace titled with the whole argv.
+mkdir -p "$WORK/strict" && : > "$WORK/strict/log" && : > "$WORK/strict/ws" && : > "$WORK/strict/surf"
+cat > "$WORK/strict/cmux" <<'SH'
+#!/bin/bash
+d="$(dirname "$0")"; printf '%s\n' "$*" >> "$d/log"
+err() { echo "ERROR: $1"; exit 0; }
+case "$*" in *--id-format*|*" --all"*) err "Unknown option" ;; esac
+case "${1:-}" in
+  ping) echo PONG ;;
+  new-workspace) shift; n=$(($(wc -l < "$d/ws") + 1)); printf 'workspace:%s\t%s\n' "$n" "$*" >> "$d/ws"; printf 'workspace:%s\tsurface:%s1\n' "$n" "$n" >> "$d/surf" ;;
+  list-workspaces) awk -F'\t' '{print $1 "  " $2}' "$d/ws" ;;
+  list-surfaces) if [ "${2:-}" = --workspace ]; then awk -F'\t' -v w="$3" '$1 == w {print $2}' "$d/surf"; else cut -f2 "$d/surf"; fi ;;
+  new-split) w="$4"; n=$(($(grep -c "^$w	" "$d/surf") + 1)); printf '%s\tsurface:%s%s\n' "$w" "${w#workspace:}" "$n" >> "$d/surf"; echo "surface:${w#workspace:}$n" ;;
+  close-workspace) grep -v "^$3	" "$d/ws" > "$d/ws.t"; mv "$d/ws.t" "$d/ws"; grep -v "^$3	" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
+  close-surface) grep -v "	$3\$" "$d/surf" > "$d/surf.t"; mv "$d/surf.t" "$d/surf" ;;
+  send|send-key|notify) : ;;
+  *) err "Unknown command '$1'. Use 'help' for available commands." ;;
+esac
+SH
+chmod +x "$WORK/strict/cmux"
+rm -f "$ORCH_REPO/.orch/cmux-panes"
+run_strict() { PATH="$WORK/strict:$PATH" ORCH_LAUNCHER=cmux ORCH_HOME="$ORCH_ROOT" ORCH_REPO="$ORCH_REPO" ORCH_PROMPT="begin" bash -c '. "$ORCH_HOME/lib/launcher/base.sh"; '"$1"; }
+out="$(run_strict 'launcher_spawn director director "$ORCH_REPO" ORCH_ROLE=director' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "the director spawns through the strict shim"
+[ "$(cut -f2 "$WORK/strict/ws")" = "orch:run" ]; chk $? "one workspace, titled exactly orch:run — the mis-titled one from the flag form was closed again"
+contains "$(cat "$WORK/strict/log")" "close-workspace --workspace workspace:1" "the stray workspace was closed"
+contains "$(grep '^send --surface' "$WORK/strict/log")" "send --surface surface:11 cd '$ORCH_REPO' && ORCH_ROLE='director' claude --agent director" "the command was typed into the shim's short-ref surface"
+out="$(run_strict 'launcher_spawn developer developer "$ORCH_REPO" ORCH_ROLE=developer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "a crew member spawns into its own feature workspace"
+contains "$(cut -f2 "$WORK/strict/ws" | tr '\n' ' ')" "orch:F001-x" "titled orch:F001-x"
+out="$(run_strict 'launcher_spawn test-engineer test-engineer "$ORCH_REPO" ORCH_ROLE=test-engineer ORCH_FEATURE=F001-x' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "a second crew member splits into it"
+contains "$(cat "$WORK/strict/log")" "new-split right --workspace workspace:2" "through new-split, without the flags the shim rejects"
+contains "$(grep '^send --surface' "$WORK/strict/log" | tail -1)" "send --surface surface:22 " "and its command goes to the new surface"
+out="$(run_strict 'launcher_list' 2>&1)"
+[ "$(printf '%s' "$out" | sort | tr '\n' ' ')" = "developer director test-engineer " ]; chk $? "all three are listed alive (got: $(printf '%s' "$out" | tr '\n' ' '))"
+out="$(run_strict 'launcher_kill test-engineer' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "kill closes a crew member's surface"
+contains "$(cat "$WORK/strict/log")" "close-surface --surface surface:22 --workspace workspace:2" "by close-surface, leaving the workspace"
+out="$(run_strict 'launcher_kill developer' 2>&1)"; rc=$?
+chk_rc 0 "$rc" "killing the last member closes the workspace"
+contains "$(cat "$WORK/strict/log")" "close-workspace --workspace workspace:2" "by close-workspace"
+out="$(run_strict 'launcher_list' 2>&1)"
+[ "$out" = "director" ]; chk $? "only the director remains (got: $out)"
+not_contains "$(run_strict 'launcher_probe')" "ERROR" "the probe carries no shim error text"
+rm -f "$ORCH_REPO/.orch/cmux-panes"
+
 finish launcher
